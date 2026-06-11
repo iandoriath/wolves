@@ -20,10 +20,12 @@ eq(WS.roster(data).length, 15, 'roster has 15 players');
 eq(WS.roster(data)[0], 'Jocelyn', 'roster preserves first-game order (Jocelyn first)');
 eq(WS.roster(data)[8], 'Zoe', 'roster order: Zoe is 9th');
 const zoe = WS.seasonLine(data, 'Zoe');
-eq(zoe.g, 9, 'Zoe G=9 (non-scratched games)');
+// Note: "Playoffs Round 1 vs. Roofers" (2026-06-06) is fully scratched pending its
+// scorecard, so it counts for no one — hence Zoe G=8 (not 9) and Elizabeth G=10 (not 11).
+eq(zoe.g, 8, 'Zoe G=8 (non-scratched games)');
 eq(zoe.line, {ab:15,h:8,_2b:3,_3b:0,hr:1,r:7,rbi:16,bb:5,k:3,hbp:1}, 'Zoe season line');
 const eliz = WS.seasonLine(data, 'Elizabeth');
-eq(eliz.g, 11, 'Elizabeth G=11');
+eq(eliz.g, 10, 'Elizabeth G=10');
 eq(eliz.line.h, 12, 'Elizabeth H=12');
 
 // --- Task 3: compute + fmt ---
@@ -46,7 +48,7 @@ eq(og.every((g, i) => i === 0 || og[i-1].date <= g.date), true, 'orderedGames so
 eq(typeof og[0].id === 'string' && typeof og[0].label === 'string', true, 'ordered game has id+label');
 const log = WS.gameLog(data, 'Zoe');
 eq(log.length, 12, 'Zoe game log has one row per game (incl. scratched)');
-eq(log.filter(r => !r.scratched).length, 9, 'Zoe played 9 of 12');
+eq(log.filter(r => !r.scratched).length, 8, 'Zoe played 8 of 12');
 const champ = log.find(r => r.label.indexOf('Championship') >= 0);
 eq(champ.line.h, 1, 'Zoe championship H=1');
 eq(champ.scratched, false, 'Zoe played the championship');
@@ -57,12 +59,12 @@ approx(WS.compute(team).avg > 0, true, 'team AVG positive');
 
 // --- Task 5: trend series ---
 const cum = WS.trendSeries(data, 'Zoe', 'avg', 'cumulative');
-eq(cum.length, 9, 'cumulative trend has one point per played game');
+eq(cum.length, 8, 'cumulative trend has one point per played game');
 approx(cum[cum.length - 1].value, 0.533, 'final cumulative AVG equals season AVG');
 eq(typeof cum[0].label, 'string', 'trend point carries a label');
 eq(cum.every((p, i) => i === 0 || cum[i-1].date <= p.date), true, 'trend points in date order');
 const per = WS.trendSeries(data, 'Zoe', 'ops', 'pergame');
-eq(per.length, 9, 'pergame trend has one point per played game');
+eq(per.length, 8, 'pergame trend has one point per played game');
 eq(per.every(p => typeof p.value === 'number'), true, 'pergame values are numbers');
 
 console.log(`\n${pass} passed, ${fail} failed`);
