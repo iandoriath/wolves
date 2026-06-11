@@ -76,7 +76,7 @@
     rows.sort((a, b) => {
       if (sort.col === 'name') return sort.dir === 'asc' ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name);
       const av = a[sort.col] || 0, bv = b[sort.col] || 0;
-      return sort.dir === 'asc' ? av - bv : bv - av;
+      return (sort.dir === 'asc' ? av - bv : bv - av) || a.name.localeCompare(b.name);
     });
     const th = c => `<th class="${c.d ? 'derived ' : ''}${c.sep ? 'sep ' : ''}${sort.col === c.key ? 'sorted' : ''}" data-col="${c.key}">${c.label}</th>`;
     const nameTh = `<th data-col="name" class="${sort.col === 'name' ? 'sorted' : ''}">Player</th>`;
@@ -102,7 +102,8 @@
 
   function parseHash() {
     const m = location.hash.match(/^#player=(.+)$/);
-    return m ? decodeURIComponent(m[1]) : null;
+    if (!m) return null;
+    try { return decodeURIComponent(m[1]); } catch (e) { return null; }
   }
   function router() {
     const name = parseHash();
@@ -145,7 +146,7 @@
       <div id="chart"></div>
       <h2 style="font-size:1.1rem;margin:8px 0">Game log</h2>
       <div class="card"><table><thead><tr><th>Game</th>${logHead}</tr></thead><tbody>${logRows}</tbody></table></div>`;
-    renderChart(name); // implemented in Task 9
+    renderChart(name);
   }
 
   const chartState = { mode: 'cumulative', metrics: { avg: true, ops: true, obp: false, slg: false } };
