@@ -55,5 +55,15 @@ const team = WS.teamLine(data);
 eq(team.hr >= 1, true, 'team HR includes Zoe + others');
 approx(WS.compute(team).avg > 0, true, 'team AVG positive');
 
+// --- Task 5: trend series ---
+const cum = WS.trendSeries(data, 'Zoe', 'avg', 'cumulative');
+eq(cum.length, 9, 'cumulative trend has one point per played game');
+approx(cum[cum.length - 1].value, 0.533, 'final cumulative AVG equals season AVG');
+eq(typeof cum[0].label, 'string', 'trend point carries a label');
+eq(cum.every((p, i) => i === 0 || cum[i-1].date <= p.date), true, 'trend points in date order');
+const per = WS.trendSeries(data, 'Zoe', 'ops', 'pergame');
+eq(per.length, 9, 'pergame trend has one point per played game');
+eq(per.every(p => typeof p.value === 'number'), true, 'pergame values are numbers');
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

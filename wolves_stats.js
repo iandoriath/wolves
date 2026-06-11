@@ -97,5 +97,22 @@
     return line;
   };
 
+  // Trend series over a player's non-scratched games in date order.
+  // metric: 'avg'|'obp'|'slg'|'ops'. mode: 'cumulative'|'pergame'. Returns [{label,date,value}].
+  WS.trendSeries = function (data, name, metric, mode) {
+    const played = WS.gameLog(data, name).filter(r => !r.scratched);
+    const acc = WS.emptyLine();
+    return played.map(r => {
+      let derived;
+      if (mode === 'cumulative') {
+        FIELDS.forEach(f => acc[f] += r.line[f]);
+        derived = WS.compute(acc);
+      } else {
+        derived = r.derived;
+      }
+      return { label: r.label, date: r.date, value: derived[metric] };
+    });
+  };
+
   global.WolvesStats = WS;
 })(typeof window !== 'undefined' ? window : globalThis);
