@@ -39,5 +39,27 @@
     return { line, g };
   };
 
+  // Derived stats from a counting line. Mirrors stats_entry.html compute().
+  WS.compute = function (s) {
+    const ab = s.ab || 0, h = s.h || 0, _2b = s._2b || 0, _3b = s._3b || 0, hr = s.hr || 0;
+    const bb = s.bb || 0, hbp = s.hbp || 0;
+    const _1b = h - _2b - _3b - hr;
+    const tb = _1b + 2 * _2b + 3 * _3b + 4 * hr;
+    const pa = ab + bb + hbp;
+    const avg = ab > 0 ? h / ab : 0;
+    const obp = pa > 0 ? (h + bb + hbp) / pa : 0;
+    const slg = ab > 0 ? tb / ab : 0;
+    const ops = obp + slg;
+    const iso = slg - avg;
+    return { _1b, tb, pa, avg, obp, slg, ops, iso };
+  };
+
+  // Number formatting mirrors stats_entry.html fmt(): 3 decimals, strip leading zero in (-1,1).
+  WS.fmt = function (x) {
+    if (!isFinite(x)) return '—';
+    const s = x.toFixed(3);
+    return x >= 1 || x <= -1 ? s : s.replace(/^(-?)0/, '$1');
+  };
+
   global.WolvesStats = WS;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -26,5 +26,18 @@ const eliz = WS.seasonLine(data, 'Elizabeth');
 eq(eliz.g, 11, 'Elizabeth G=11');
 eq(eliz.line.h, 12, 'Elizabeth H=12');
 
+// --- Task 3: compute + fmt ---
+const zc = WS.compute(WS.seasonLine(data, 'Zoe').line);
+approx(zc.avg, 0.533, 'Zoe AVG .533');
+approx(zc.obp, 0.667, 'Zoe OBP .667');
+approx(zc.slg, 0.933, 'Zoe SLG .933');
+approx(zc.ops, 1.600, 'Zoe OPS 1.600');
+approx(WS.compute(WS.seasonLine(data, 'Claire').line).avg, 0.688, 'Claire AVG .688');
+eq(zc.tb, 14, 'Zoe TB=14 (4 singles + 3 doubles*2 + 1 HR*4)');
+eq(WS.compute({ab:0,h:0,_2b:0,_3b:0,hr:0,bb:0,hbp:0}).avg, 0, 'empty line AVG=0 (no divide-by-zero)');
+eq(WS.fmt(0.533), '.533', 'fmt strips leading zero');
+eq(WS.fmt(1.6), '1.600', 'fmt keeps leading digit when >= 1');
+eq(WS.fmt(Infinity), '—', 'fmt non-finite shows em dash');
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
