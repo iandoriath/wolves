@@ -61,5 +61,41 @@
     return x >= 1 || x <= -1 ? s : s.replace(/^(-?)0/, '$1');
   };
 
+  // All games as an array, sorted by date ascending (stable; empty dates sort first
+  // and keep insertion order). Each: { id, label, date, stats }.
+  WS.orderedGames = function (data) {
+    const arr = Object.keys(data.games).map((id, i) => {
+      const g = data.games[id];
+      return { id, label: g.label || '', date: g.date || '', stats: g.stats, _i: i };
+    });
+    arr.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a._i - b._i));
+    return arr.map(({ _i, ...rest }) => rest);
+  };
+
+  // Per-player game log: one row per game in date order (including scratched games).
+  WS.gameLog = function (data, name) {
+    return WS.orderedGames(data).map(g => {
+      const s = g.stats[name];
+      const scratched = !s || !!s.scratched;
+      const line = WS.emptyLine();
+      if (s) FIELDS.forEach(f => line[f] = s[f] || 0);
+      return { id: g.id, label: g.label, date: g.date, scratched, line, derived: WS.compute(line) };
+    });
+  };
+
+  // Team line: field-wise sum across every non-scratched player-game.
+  WS.teamLine = function (data) {
+    const line = WS.emptyLine();
+    Object.keys(data.games).forEach(id => {
+      const stats = data.games[id].stats;
+      Object.keys(stats).forEach(name => {
+        const s = stats[name];
+        if (!s || s.scratched) return;
+        FIELDS.forEach(f => line[f] += s[f] || 0);
+      });
+    });
+    return line;
+  };
+
   global.WolvesStats = WS;
 })(typeof window !== 'undefined' ? window : globalThis);

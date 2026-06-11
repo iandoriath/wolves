@@ -39,5 +39,21 @@ eq(WS.fmt(0.533), '.533', 'fmt strips leading zero');
 eq(WS.fmt(1.6), '1.600', 'fmt keeps leading digit when >= 1');
 eq(WS.fmt(Infinity), '—', 'fmt non-finite shows em dash');
 
+// --- Task 4: ordered games, game log, team line ---
+const og = WS.orderedGames(data);
+eq(og.length, 12, 'orderedGames returns all 12 games');
+eq(og.every((g, i) => i === 0 || og[i-1].date <= g.date), true, 'orderedGames sorted by date asc');
+eq(typeof og[0].id === 'string' && typeof og[0].label === 'string', true, 'ordered game has id+label');
+const log = WS.gameLog(data, 'Zoe');
+eq(log.length, 12, 'Zoe game log has one row per game (incl. scratched)');
+eq(log.filter(r => !r.scratched).length, 9, 'Zoe played 9 of 12');
+const champ = log.find(r => r.label.indexOf('Championship') >= 0);
+eq(champ.line.h, 1, 'Zoe championship H=1');
+eq(champ.scratched, false, 'Zoe played the championship');
+approx(champ.derived.avg, 1.0, 'Zoe championship game AVG 1.000 (1-for-1)');
+const team = WS.teamLine(data);
+eq(team.hr >= 1, true, 'team HR includes Zoe + others');
+approx(WS.compute(team).avg > 0, true, 'team AVG positive');
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
