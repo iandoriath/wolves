@@ -114,5 +114,21 @@
     });
   };
 
+  // Cumulative season-to-date metric for one player, aligned to the TEAM game index
+  // (orderedGames order). One entry per team game: { n, label, date, played, value }.
+  // value is null until the player's first played game, then the cumulative metric,
+  // carried forward (flat) across games the player did not play. metric defaults to 'ops'.
+  WS.cumulativeByTeamGame = function (data, name, metric) {
+    metric = metric || 'ops';
+    const acc = WS.emptyLine();
+    let started = false;
+    return WS.orderedGames(data).map((g, i) => {
+      const s = g.stats[name];
+      const played = !!(s && !s.scratched);
+      if (played) { FIELDS.forEach(f => acc[f] += s[f] || 0); started = true; }
+      return { n: i + 1, label: g.label, date: g.date, played, value: started ? WS.compute(acc)[metric] : null };
+    });
+  };
+
   global.WolvesStats = WS;
 })(typeof window !== 'undefined' ? window : globalThis);

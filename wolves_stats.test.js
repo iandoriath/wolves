@@ -67,5 +67,17 @@ const per = WS.trendSeries(data, 'Zoe', 'ops', 'pergame');
 eq(per.length, 8, 'pergame trend has one point per played game');
 eq(per.every(p => typeof p.value === 'number'), true, 'pergame values are numbers');
 
+// --- Team OPS development: cumulativeByTeamGame ---
+const tg = WS.cumulativeByTeamGame(data, 'Jocelyn');           // scratched team games 1-4
+eq(tg.length, WS.orderedGames(data).length, 'series has one entry per team game (12)');
+eq(tg.slice(0, 4).every(p => p.value === null), true, 'Jocelyn: null before first game played (games 1-4)');
+eq(tg[4].value !== null, true, 'Jocelyn: value present from game 5 (first played)');
+eq(tg.filter(p => p.played).length, WS.seasonLine(data, 'Jocelyn').g, 'played-count matches season G');
+approx(tg[tg.length - 1].value, WS.compute(WS.seasonLine(data, 'Jocelyn').line).ops, 'last value = season OPS');
+eq(typeof tg[4].label === 'string' && typeof tg[4].n === 'number', true, 'entry carries n + label');
+const tgZoe = WS.cumulativeByTeamGame(data, 'Zoe');             // played the opener
+eq(tgZoe[0].value !== null, true, 'Zoe: no leading null (played game 1)');
+approx(tgZoe[tgZoe.length - 1].value, WS.compute(WS.seasonLine(data, 'Zoe').line).ops, 'Zoe last value = season OPS');
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
