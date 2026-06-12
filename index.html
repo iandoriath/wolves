@@ -32,6 +32,11 @@
     .chart .axis { stroke:var(--line); stroke-width:1; }
     .chart text { fill:var(--muted); font-size:11px; }
     .chart .pt { cursor:pointer; }
+    .tc-legend { display:flex; flex-wrap:wrap; gap:4px 10px; margin:8px 0 0; font-size:12px; }
+    .tc-legend span { cursor:pointer; color:var(--muted); display:inline-flex; align-items:center; gap:4px; padding:2px 4px; border-radius:5px; }
+    .tc-legend span:hover, .tc-legend span.active { color:var(--ink); background:rgba(255,255,255,.06); }
+    .tc-legend i { width:10px; height:10px; border-radius:2px; display:inline-block; }
+    #teamchart path.line { transition:opacity .12s, stroke-width .12s; }
   </style>
 </head>
 <body>
@@ -91,6 +96,9 @@
         <tbody>${rows.map(bodyRow).join('')}</tbody>
         <tfoot><tr><td>${esc(tr.name)}</td>${COLS.map(c => td(tr, c)).join('')}</tr></tfoot>
       </table></div>
+      <h2 style="font-size:1.1rem;margin:14px 0 4px">Team OPS — season development</h2>
+      <p class="sub" style="margin-bottom:6px">Cumulative OPS by team game number. Hover or tap a name to highlight a player.</p>
+      <div id="teamchart"></div>
       <p class="sub">Batting only — this site does not track game scores or W/L record.</p>`;
     document.querySelectorAll('th[data-col]').forEach(el => el.addEventListener('click', () => {
       const col = el.dataset.col;
@@ -98,6 +106,62 @@
       else sort = { col, dir: col === 'name' ? 'asc' : 'desc' };
       renderHome();
     }));
+    renderTeamChart();
+  }
+
+  const TC_COLORS = ['#38bdf8','#f472b6','#34d399','#fbbf24','#a78bfa','#fb7185','#4ade80',
+    '#facc15','#22d3ee','#f97316','#c084fc','#2dd4bf','#e879f9','#60a5fa','#fca5a5'];
+
+  function renderTeamChart() {
+    const host = document.getElementById('teamchart');
+    if (!host) return;
+    const names = WS.roster(DATA);
+    const series = names.map((name, i) => ({
+      name, color: TC_COLORS[i % TC_COLORS.length], pts: WS.cumulativeByTeamGame(DATA, name)
+    }));
+    const N = WS.orderedGames(DATA).length;
+    if (!N) { host.innerHTML = '<p class="muted">No games yet.</p>'; return; }
+    const W = 720, H = 320, padL = 38, padR = 12, padT = 12, padB = 30;
+    let maxY = 0;
+    series.forEach(s => s.pts.forEach(p => { if (p.value != null && p.value > maxY) maxY = p.value; }));
+    maxY = Math.max(0.5, maxY * 1.08);
+    const x = n => padL + (N === 1 ? (W - padL - padR) / 2 : (n - 1) * (W - padL - padR) / (N - 1));
+    const y = v => padT + (H - padT - padB) * (1 - v / maxY);
+    const gridY = [0, 0.25, 0.5, 0.75, 1].map(f => f * maxY);
+    const grid = gridY.map(v => `<line class="axis" x1="${padL}" y1="${y(v).toFixed(1)}" x2="${W - padR}" y2="${y(v).toFixed(1)}"/><text x="4" y="${(y(v) + 3).toFixed(1)}">${WS.fmt(v)}</text>`).join('');
+    const xlabels = Array.from({ length: N }, (_, i) => `<text x="${x(i + 1).toFixed(1)}" y="${H - padB + 16}" text-anchor="middle">${i + 1}</text>`).join('');
+    const paths = series.map(s => {
+      const pts = s.pts.filter(p => p.value != null);
+      if (!pts.length) return '';
+      const d = pts.map((p, i) => `${i ? 'L' : 'M'}${x(p.n).toFixed(1)},${y(p.value).toFixed(1)}`).join(' ');
+      return `<path class="line" data-name="${esc(s.name)}" d="${d}" fill="none" stroke="${s.color}" stroke-width="1.5" opacity="0.35"/>`;
+    }).join('');
+    const legend = series.map(s => `<span data-name="${esc(s.name)}"><i style="background:${s.color}"></i>${esc(s.name)}</span>`).join('');
+    host.innerHTML = `
+      <div class="card chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Team OPS by game">${grid}${xlabels}${paths}<g id="tc-dots"></g></svg></div>
+      <div class="tc-legend">${legend}</div>`;
+
+    const dotsG = host.querySelector('#tc-dots');
+    let locked = null;
+    function highlight(name) {
+      host.querySelectorAll('path.line').forEach(p => {
+        const on = p.dataset.name === name;
+        p.setAttribute('opacity', name == null ? '0.35' : (on ? '1' : '0.08'));
+        p.setAttribute('stroke-width', on ? '3' : '1.5');
+      });
+      host.querySelectorAll('.tc-legend span').forEach(el => el.classList.toggle('active', el.dataset.name === name));
+      dotsG.innerHTML = '';
+      if (name != null) {
+        const s = series.find(z => z.name === name);
+        dotsG.innerHTML = s.pts.filter(p => p.value != null && p.played).map(p =>
+          `<circle cx="${x(p.n).toFixed(1)}" cy="${y(p.value).toFixed(1)}" r="3.5" fill="${s.color}"><title>${esc(name)} — game ${p.n}: ${esc(p.label || '')}${p.date ? ' (' + esc(p.date) + ')' : ''}\nOPS ${WS.fmt(p.value)}</title></circle>`).join('');
+      }
+    }
+    host.querySelectorAll('.tc-legend span').forEach(el => {
+      el.addEventListener('mouseenter', () => { if (locked == null) highlight(el.dataset.name); });
+      el.addEventListener('mouseleave', () => { if (locked == null) highlight(null); });
+      el.addEventListener('click', () => { locked = (locked === el.dataset.name) ? null : el.dataset.name; highlight(locked); });
+    });
   }
 
   function parseHash() {
