@@ -1,0 +1,15 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coach Dashboard</title><link rel="stylesheet" href="site.css">
+<style>
+main#app .block { margin-top:16px; padding-top:12px; border-top:1px solid var(--line); }
+main#app .block:first-of-type { margin-top:8px; padding-top:0; border-top:none; }
+@media (min-width: 900px) {
+  main#app { max-width:1280px; }
+  main#app .team-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; align-items:start; }
+}
+</style>
+<script src="config.js"></script><script src="schedule_lib.js"></script>
+<script type="module" src="api.js"></script></head>
+<body><main id="app"><p class="muted">Loading…</p></main>
+<script type="module" src="coach_page.js"></script></body></html>

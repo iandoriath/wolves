@@ -1,0 +1,16 @@
+:root { --bg:#f7f7f5; --card:#fff; --ink:#1a1a1a; --accent:#2d6a4f; --warn:#b45309; --line:#e5e5e0; }
+* { box-sizing: border-box; }
+body { margin:0; font:16px/1.5 system-ui, sans-serif; background:var(--bg); color:var(--ink); }
+main { max-width:640px; margin:0 auto; padding:12px; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin:12px 0; }
+.btn { display:inline-block; padding:10px 16px; border-radius:10px; border:1px solid var(--line);
+  background:#fff; font-size:16px; cursor:pointer; }
+.btn.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+.badge-cancelled { color:#b91c1c; font-weight:700; }
+.cancelled { text-decoration: line-through; opacity:.6; }
+.banner { background:#fff8e1; border:1px solid #f0d98c; border-radius:10px; padding:10px 14px; margin:12px 0; }
+.warn { color:var(--warn); font-weight:600; }
+.muted { color:#666; font-size:14px; }
+.grid { display:grid; gap:8px; }
+h1 { font-size:22px; } h2 { font-size:18px; margin:8px 0; }
+table { border-collapse:collapse; width:100%; } td, th { padding:6px 8px; border-bottom:1px solid var(--line); text-align:left; }
