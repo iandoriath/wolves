@@ -157,7 +157,7 @@ function pollCard(slug, data, p) {
     if (!slot) return '';
     return `<tr>
       <td>${escapeHtml(L.fmtWhen(slot.starts_at))}</td>
-      <td class="muted">${t.yes} / ${t.ifneeded} / ${t.no}</td>
+      <td class="muted">✅ ${t.yes} · 🤷 ${t.ifneeded} · ❌ ${t.no}</td>
       <td><button class="btn" data-action="convert-slot" data-slug="${escapeHtml(slug)}" data-poll="${p.id}" data-slot="${slot.id}">Make this the practice ✓</button></td>
     </tr>`;
   }).join('');

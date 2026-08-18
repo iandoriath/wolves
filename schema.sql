@@ -79,12 +79,12 @@ create policy anon_write on rsvps for all using (true) with check (true);
 create policy anon_write on poll_votes for all using (true) with check (true);
 create policy anon_write on volunteer_claims for all using (true) with check (true);
 
--- coach (authenticated) may write everything else
-create policy coach_write on teams for all to authenticated using (true) with check (true);
-create policy coach_write on players for all to authenticated using (true) with check (true);
-create policy coach_write on events for all to authenticated using (true) with check (true);
-create policy coach_write on polls for all to authenticated using (true) with check (true);
-create policy coach_write on poll_slots for all to authenticated using (true) with check (true);
+-- coach (authenticated) may write everything else, scoped to the coach's own login
+create policy coach_write on teams for all to authenticated using ((auth.jwt()->>'email') = 'idelorey@gmail.com') with check ((auth.jwt()->>'email') = 'idelorey@gmail.com');
+create policy coach_write on players for all to authenticated using ((auth.jwt()->>'email') = 'idelorey@gmail.com') with check ((auth.jwt()->>'email') = 'idelorey@gmail.com');
+create policy coach_write on events for all to authenticated using ((auth.jwt()->>'email') = 'idelorey@gmail.com') with check ((auth.jwt()->>'email') = 'idelorey@gmail.com');
+create policy coach_write on polls for all to authenticated using ((auth.jwt()->>'email') = 'idelorey@gmail.com') with check ((auth.jwt()->>'email') = 'idelorey@gmail.com');
+create policy coach_write on poll_slots for all to authenticated using ((auth.jwt()->>'email') = 'idelorey@gmail.com') with check ((auth.jwt()->>'email') = 'idelorey@gmail.com');
 
 insert into teams (slug, name, emoji, min_players) values
   ('softball', 'SAA 10U Wolves', '🥎', 8),

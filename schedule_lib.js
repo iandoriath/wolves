@@ -36,7 +36,7 @@
              past: sorted.filter(e => e.starts_at < iso) };
   }
 
-  const icsStamp = (s) => s.replace(/[-:]/g, '').replace(/\.\d+/, '').replace(/Z?$/, 'Z');
+  const icsStamp = (s) => new Date(s).toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
   const esc = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/,/g, '\\,')
     .replace(/;/g, '\\;').replace(/\n/g, '\\n');
 

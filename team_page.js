@@ -2,6 +2,12 @@ const L = globalThis.ScheduleLib, Api = globalThis.Api;
 const slug = new URLSearchParams(location.search).get('team');
 const app = document.getElementById('app');
 let data, offline = false;
+
+if (!slug || !['softball', 'soccer'].includes(slug)) {
+  app.innerHTML = '<p class="warn">Team not found. <a href="index.html">Back to team list</a></p>';
+  throw new Error('invalid team slug');
+}
+
 const kidKey = 'kid:' + slug;
 const kid = () => Number(localStorage.getItem(kidKey)) || null;
 
@@ -106,7 +112,7 @@ function pollCard(p) {
         <button class="btn${myVote === 'ifneeded' ? ' active' : ''}" data-action="vote" data-slot="${s.id}" data-choice="ifneeded" ${disabled}>🤷</button>
         <button class="btn${myVote === 'no' ? ' active' : ''}" data-action="vote" data-slot="${s.id}" data-choice="no" ${disabled}>❌</button>
       </td>
-      <td class="muted">${t.yes} / ${t.ifneeded} / ${t.no}</td>
+      <td class="muted">✅ ${t.yes} · 🤷 ${t.ifneeded} · ❌ ${t.no}</td>
     </tr>`;
   }).join('');
   return `<div class="card">

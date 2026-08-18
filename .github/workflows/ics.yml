@@ -5,6 +5,9 @@ on:
   workflow_dispatch:
 permissions:
   contents: write
+concurrency:
+  group: ics-feed
+  cancel-in-progress: false
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -21,4 +24,5 @@ jobs:
           git config user.email "actions@github.com"
           git add *.ics
           git diff --cached --quiet || git commit -m "ics: refresh feeds"
+          git pull --rebase
           git push

@@ -46,12 +46,16 @@ const ics = L.buildIcs('Wolves', [
   {id:5, kind:'game', opponent:'Tigers', starts_at:'2026-04-25T13:00:00Z',
    location:'Field 3', notes:'wear white', cancelled:false},
   {id:6, kind:'practice', starts_at:'2026-04-27T22:00:00Z', location:'', notes:'', cancelled:true},
+  {id:7, kind:'practice', starts_at:'2026-04-25T13:00:00+00:00', location:'', notes:'', cancelled:false},
 ]);
 if (!ics.includes('BEGIN:VCALENDAR')) { fails++; console.error('FAIL ics header'); }
 if (!ics.includes('UID:evt-5@wolves.glorbnorb.com')) { fails++; console.error('FAIL ics uid'); }
 if (!ics.includes('DTSTART:20260425T130000Z')) { fails++; console.error('FAIL ics dtstart'); }
 if (!ics.includes('SUMMARY:Game vs Tigers')) { fails++; console.error('FAIL ics summary'); }
 if (ics.includes('evt-6')) { fails++; console.error('FAIL ics cancelled included'); }
+if (!ics.includes('UID:evt-7@wolves.glorbnorb.com') || !ics.includes('DTSTART:20260425T130000Z')) {
+  fails++; console.error('FAIL ics dtstart +00:00 offset form');
+}
 
 console.log(fails ? `${fails} FAILURES` : 'ALL PASS');
 process.exit(fails ? 1 : 0);
