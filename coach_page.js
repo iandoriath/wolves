@@ -100,7 +100,7 @@ function eventForm(slug, e, presetKind) {
 }
 
 function eventRow(slug, e) {
-  if (ui[slug].editingEvent === e.id) return eventForm(slug, e);
+  if (ui[slug].editingEvent === e.id) return `<tr><td colspan="5">${eventForm(slug, e)}</td></tr>`;
   return `<tr class="${e.cancelled ? 'cancelled' : ''}">
     <td>${escapeHtml(L.fmtWhen(e.starts_at))}</td>
     <td>${escapeHtml(e.kind)}</td>
@@ -154,6 +154,7 @@ function pollCard(slug, data, p) {
   const tallies = L.tallyPoll(slots, votes);
   const rows = tallies.map((t) => {
     const slot = slots.find((s) => s.id === t.slot_id);
+    if (!slot) return '';
     return `<tr>
       <td>${escapeHtml(L.fmtWhen(slot.starts_at))}</td>
       <td class="muted">${t.yes} / ${t.ifneeded} / ${t.no}</td>
@@ -238,7 +239,6 @@ async function onEventFormSubmit(ev) {
   const id = idAttr ? Number(idAttr) : undefined;
   const existing = id ? teams[slug].events.find((e) => e.id === id) : null;
   const row = {
-    id,
     team_id: teams[slug].team.id,
     kind: fd.get('kind'),
     opponent: fd.get('opponent') || null,
@@ -248,6 +248,7 @@ async function onEventFormSubmit(ev) {
     cancelled: existing ? existing.cancelled : false,
     volunteer_roles: String(fd.get('volunteer_roles') || '').split(',').map((s) => s.trim()).filter(Boolean),
   };
+  if (id) row.id = id;
   try {
     await Api.saveEvent(row);
     ui[slug].editingEvent = null;
