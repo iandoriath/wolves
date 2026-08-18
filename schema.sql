@@ -10,7 +10,7 @@ create table players (
   id bigint generated always as identity primary key,
   team_id bigint not null references teams(id),
   first_name text not null,
-  first_initial text,                  -- null unless needed to disambiguate
+  last_initial text,                  -- null unless needed to disambiguate
   active boolean not null default true
 );
 create table events (
