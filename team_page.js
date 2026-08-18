@@ -11,15 +11,27 @@ function escapeHtml(s) {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+function readCacheDirect() {
+  try { return JSON.parse(localStorage.getItem('cache:' + slug)); } catch { return null; }
+}
+
 async function boot() {
-  Api.init();
-  try { data = await Api.loadTeamData(slug); }
-  catch { data = Api.loadTeamDataCached(slug); offline = true; }
+  try {
+    Api.init();
+    data = await Api.loadTeamData(slug);
+  } catch {
+    data = globalThis.Api ? Api.loadTeamDataCached(slug) : readCacheDirect();
+    offline = true;
+  }
   if (!data) { app.innerHTML = '<p class="warn">Can’t reach the schedule server. Try again later.</p>'; return; }
   render();
 }
 
-async function refresh() { try { data = await Api.loadTeamData(slug); offline = false; } catch {} render(); }
+async function refresh() {
+  try { data = await Api.loadTeamData(slug); offline = false; }
+  catch { offline = true; }
+  render();
+}
 
 function header() {
   return `<h1>${data.team.emoji ? escapeHtml(data.team.emoji) + ' ' : ''}${escapeHtml(data.team.name)}</h1>`;
