@@ -1,0 +1,24 @@
+name: ics-feed
+on:
+  schedule:
+    - cron: '17 * * * *'   # hourly; also keeps the Supabase free project awake
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: node make_ics.js
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      - run: |
+          git config user.name "ics-bot"
+          git config user.email "actions@github.com"
+          git add *.ics
+          git diff --cached --quiet || git commit -m "ics: refresh feeds"
+          git push
