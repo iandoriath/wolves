@@ -1,5 +1,7 @@
-/* ui.js — UI primitives (part 1): escaping, icons, toast, sheet, confirm, share.
-   Classic script; exposes globalThis.UI. May use globalThis.ScheduleLib. */
+/* ui.js — shared UI: escaping, icons, toast, sheet, confirm, share (part 1) and
+   the renderers every page draws with — rows, hero, RSVP, headcount, volunteers,
+   polls, posts, month grid (part 2).
+   Classic script; exposes globalThis.UI. Uses globalThis.ScheduleLib. */
 (function () {
   const L = globalThis.ScheduleLib;
   const U = {};
@@ -42,8 +44,23 @@
     el.__mo?.disconnect(); el.__mo = null;
     el.remove();
   };
+  // A <dialog> sits in the top layer and paints above any z-index, so a toast has to
+  // live *inside* the dialog to be seen while the sheet is open — and move back out
+  // when it closes. close() drops the `open` attribute; watch the attribute rather
+  // than the 'close' event, because observer callbacks are microtasks that still run
+  // when the tab is hidden, so the toast always finds its way back to <body>.
+  const adoptToast = (d, el) => {
+    d.appendChild(el);
+    el.__mo?.disconnect();
+    el.__mo = new MutationObserver(() => {
+      if (d.open) return;
+      el.__mo.disconnect(); el.__mo = null;
+      if (el.isConnected) document.body.appendChild(el);
+    });
+    el.__mo.observe(d, { attributes: true, attributeFilter: ['open'] });
+  };
   U.toast = (message, { action, duration = 4500 } = {}) => {
-    if (toastEl) toastEl.remove();
+    if (toastEl) dropToast(toastEl);
     clearTimeout(toastTimer);
     const el = document.createElement('div');
     el.className = 'toast'; el.setAttribute('role', 'status');
@@ -52,23 +69,8 @@
     // raises itself (Undo -> "Undone") is not torn down on the way out.
     if (action) el.querySelector('button').onclick = () => { dropToast(el); action.onClick(); };
     toastEl = el;
-    // A <dialog> sits in the top layer and paints above any z-index, so a toast
-    // raised while the sheet is open has to live inside the dialog to be seen.
     const d = document.getElementById('sheet');
-    if (d?.open) {
-      d.appendChild(el);
-      // close() drops the `open` attribute. Watch the attribute rather than the
-      // 'close' event: observer callbacks are microtasks and still run when the
-      // tab is hidden, so the toast always finds its way back out of the dialog.
-      el.__mo = new MutationObserver(() => {
-        if (d.open) return;
-        el.__mo.disconnect(); el.__mo = null;
-        if (el.isConnected) document.body.appendChild(el);
-      });
-      el.__mo.observe(d, { attributes: true, attributeFilter: ['open'] });
-    } else {
-      document.body.appendChild(el);
-    }
+    if (d?.open) adoptToast(d, el); else document.body.appendChild(el);
     toastTimer = setTimeout(() => dropToast(el), duration);
   };
 
@@ -95,7 +97,12 @@
     if (liveToast) d.appendChild(liveToast);
     if (title) { d.setAttribute('aria-labelledby', 'sheet-title'); d.removeAttribute('aria-label'); }
     else { d.setAttribute('aria-label', 'Dialog'); d.removeAttribute('aria-labelledby'); }
-    if (!d.open) d.showModal();
+    if (!d.open) {
+      d.showModal();
+      // A toast raised *before* the sheet opened is stranded under the dialog's
+      // top layer, so bring it along too.
+      if (toastEl?.isConnected && toastEl.parentElement !== d) adoptToast(d, toastEl);
+    }
     const root = d.querySelector('.sheet-body');
     if (onOpen) onOpen(root);
     focusInto(d, root);
@@ -108,10 +115,13 @@
       <button class="btn ${danger ? 'btn-danger' : 'btn-primary'}" type="button" data-ok>${U.esc(confirmLabel)}</button>
       <button class="btn btn-ghost" type="button" data-cancel${danger ? ' autofocus' : ''}>${U.esc(cancelLabel)}</button></div>` });
     const d = document.getElementById('sheet');
-    const done = (v) => { resolve(v); close(); };
+    // Dismissal (Esc / backdrop tap) resolves false — watched on the `open`
+    // attribute rather than the 'close' event, for the reason above.
+    const mo = new MutationObserver(() => { if (!d.open) { mo.disconnect(); resolve(false); } });
+    mo.observe(d, { attributes: true, attributeFilter: ['open'] });
+    const done = (v) => { mo.disconnect(); resolve(v); close(); };
     root.querySelector('[data-ok]').onclick = () => done(true);
     root.querySelector('[data-cancel]').onclick = () => done(false);
-    d.addEventListener('close', () => resolve(false), { once: true });
   });
 
   // ---- share / copy ----
@@ -122,6 +132,193 @@
     const ok = await U.copy(url && !body.includes(url) ? `${body}\n${url}` : body);
     U.toast(ok ? 'Copied to clipboard' : 'Couldn’t copy — long-press to select');
     return ok ? 'copied' : 'failed';
+  };
+
+  // ================= renderers =================
+  // Every renderer returns an HTML string. `ctx` is the shared render context:
+  //   { b, team, e, kids, isCoach, now, readOnly, expanded, overlapWith, prevSeen,
+  //     origin, slug, showTeam, multiKid }
+  // Interaction is delegated: controls carry data-action (+ data-slug/event/player/…)
+  // and the page binds one listener.
+  U.dataAttrs = (o) => Object.entries(o).filter(([, v]) => v != null).map(([k, v]) => `data-${k}="${U.esc(v)}"`).join(' ');
+  const tzOf = (team) => team.tz || 'America/New_York';
+  const kidName = (p) => U.esc(L.displayName(p));
+  // en-US puts U+202F (narrow no-break space) before AM/PM, so split on any
+  // whitespace — and escape *before* inserting markup, never after.
+  const timeHtml = (iso, tz, sep) => U.esc(L.fmtTime(iso, tz)).replace(/\s/, sep);
+
+  U.statusPill = (status) => status === 'going' ? '<span class="pill pill-going">Going</span>'
+    : status === 'maybe' ? '<span class="pill pill-maybe">Maybe</span>'
+    : status === 'out' ? '<span class="pill pill-out">Can’t</span>' : '<span class="pill pill-silent">No reply</span>';
+
+  U.badges = (ctx) => {
+    const { e, team, now, prevSeen } = ctx; const out = [];
+    if (e.status === 'cancelled') out.push('<span class="badge badge-cancelled">Cancelled</span>');
+    else if (e.status === 'tentative') out.push('<span class="badge badge-tentative">Weather pending</span>');
+    if (e.rescheduled_from) out.push('<span class="badge badge-moved">Moved</span>');
+    if (e.time_tbd) out.push('<span class="badge badge-tbd">Time TBD</span>');
+    if (e.status !== 'cancelled' && L.isNow(e, team, now)) out.push('<span class="badge badge-now">Now</span>');
+    const r = L.resultLabel(e); if (r) out.push(`<span class="badge badge-result">${U.esc(r)}</span>`);
+    if (prevSeen && e.updated_at && L.T(e.updated_at) > L.T(prevSeen) && !L.isPast(e, team, now))
+      out.push(`<span class="badge badge-new">${e.created_at && L.T(e.created_at) > L.T(prevSeen) ? 'New' : 'Updated'}</span>`);
+    return out.join(' ');
+  };
+
+  U.rsvpControl = ({ slug, e, kid, status, disabled, label }) => {
+    const btn = (st, text) => `<button type="button" class="${status === st ? 'on-' + st : ''}" ${U.dataAttrs({ action: 'rsvp', slug, event: e.id, player: kid.id, status: st })} aria-pressed="${status === st}" ${disabled ? 'disabled' : ''}>${text}</button>`;
+    return `${label ? `<div class="rsvp-kid">${label}</div>` : ''}<div class="rsvp" role="group" aria-label="RSVP for ${kidName(kid)}">${btn('going', 'Going')}${btn('maybe', 'Maybe')}${btn('out', 'Can’t')}</div>`;
+  };
+  U.rsvpBlock = (ctx) => {
+    const { b, e, kids, slug, readOnly, team } = ctx;
+    if (readOnly) return `<div class="notice notice-info">${U.icon('info')}<div>Tap your invite link to RSVP and see who’s going.</div></div>`;
+    if (!kids.length) return ctx.isCoach ? '' : `<button class="btn btn-block" data-action="pick-kids">Pick your player to RSVP</button>`;
+    if (e.status === 'cancelled') return '';
+    return kids.map(kid => {
+      const r = b.rsvps.find(x => x.event_id === e.id && x.player_id === kid.id);
+      const meta = r ? `<div class="tiny muted" style="margin-top:6px">Answered ${U.esc(L.relativeTime(r.updated_at, ctx.now, tzOf(team)))}${r.note ? ` · “${U.esc(r.note)}”` : ''} · <button class="btn btn-ghost btn-sm" style="min-height:28px;padding:0 6px" ${U.dataAttrs({ action: 'note', slug, event: e.id, player: kid.id })}>${r.note ? 'Edit note' : 'Add a note'}</button></div>` : '';
+      return U.rsvpControl({ slug, e, kid, status: r?.status, label: kids.length > 1 ? kidName(kid) : '' }) + meta;
+    }).join('');
+  };
+
+  U.headcountLine = (s, minPlayers) => {
+    const parts = [`<b class="count">${s.going.length}</b> going`];
+    if (s.maybe.length) parts.push(`<b class="count">${s.maybe.length}</b> maybe`);
+    parts.push(`<b class="count">${s.out.length}</b> can’t`, `<b class="count">${s.silent.length}</b> no reply`);
+    const short = s.shortBy > 0 && minPlayers ? ` <span class="pill pill-silent">need ${s.shortBy} more</span>` : '';
+    return `<div class="tiny muted" style="margin-top:8px">${parts.join(' · ')}${short}</div>`;
+  };
+
+  U.whoIsGoing = (ctx, s) => {
+    const { slug, e, isCoach, readOnly, b } = ctx;
+    if (readOnly) return '';
+    const conflicts = new Set(L.volunteerConflicts(e, b.claims, b.rsvps).map(c => c.player_id));
+    const name = (p) => isCoach
+      ? `<button class="btn btn-sm btn-ghost" style="min-height:32px;padding:2px 8px" ${U.dataAttrs({ action: 'coach-player', slug, event: e.id, player: p.id })}>${kidName(p)}${conflicts.has(p.id) ? ' ⚠️' : ''}</button>`
+      : `<span>${kidName(p)}</span>`;
+    const group = (label, list, cls) => list.length ? `<div style="margin-top:8px"><span class="pill ${cls}">${label} · ${list.length}</span><div class="cluster tiny" style="margin-top:4px">${list.map(name).join(isCoach ? '' : '<span class="muted">·</span>')}</div></div>` : '';
+    return `<div class="kicker" style="margin-top:14px">Who’s going</div>${group('Going', s.going, 'pill-going')}${group('Maybe', s.maybe, 'pill-maybe')}${group('Can’t', s.out, 'pill-out')}${group('No reply', s.silent, 'pill-silent')}`
+      + (isCoach && s.silent.length ? `<div class="cluster" style="margin-top:10px"><button class="btn btn-sm" ${U.dataAttrs({ action: 'coach-text-noreply', slug, event: e.id })}>${U.icon('message')} Text no-replies</button></div>` : '');
+  };
+
+  U.volunteerRoles = (ctx) => {
+    const { b, e, kids, slug, readOnly } = ctx;
+    const roles = e.volunteer_roles || [];
+    if (!roles.length || readOnly || e.status === 'cancelled') return '';
+    const rows = roles.map(role => {
+      const claim = b.claims.find(c => c.event_id === e.id && c.role === role);
+      if (claim) {
+        const p = b.players.find(x => x.id === claim.player_id);
+        const mine = kids.find(k => k.id === claim.player_id);
+        return `<div class="cluster" style="justify-content:space-between"><span><b>${U.esc(role)}</b>: ${p ? kidName(p) : 'someone'}</span>${mine ? `<button class="btn btn-sm" ${U.dataAttrs({ action: 'unclaim', slug, event: e.id, role })}>Unclaim</button>` : ''}</div>`;
+      }
+      const claimBtns = kids.map(k => `<button class="btn btn-sm btn-primary" ${U.dataAttrs({ action: 'claim', slug, event: e.id, role, player: k.id })}>Claim${kids.length > 1 ? ' for ' + kidName(k) : ''}</button>`).join('');
+      return `<div class="cluster" style="justify-content:space-between"><span><b>${U.esc(role)}</b>: <span class="muted">open</span></span><span class="cluster">${claimBtns}</span></div>`;
+    }).join('');
+    return `<div class="kicker" style="margin-top:14px">Volunteers</div><div class="stack" style="margin-top:6px">${rows}</div>`;
+  };
+
+  const metaLines = (ctx) => {
+    const { e, team } = ctx; const tz = tzOf(team); const lines = [];
+    const ab = L.arriveBy(e, team);
+    if (e.status === 'tentative' || e.status === 'cancelled') lines.push(`<div class="notice ${e.status === 'cancelled' ? 'notice-danger' : 'notice-warn'}">${U.icon('alert')}<div><b>${e.status === 'cancelled' ? 'Cancelled' : 'Weather pending'}</b>${e.status_note ? ` — ${U.esc(e.status_note)}` : ''}</div></div>`);
+    if (e.rescheduled_from) lines.push(`<div>${U.icon('clock')} Moved from ${U.esc(L.fmtDay(e.rescheduled_from, tz))} ${U.esc(L.fmtTime(e.rescheduled_from, tz))}</div>`);
+    if (ab && e.status !== 'cancelled') lines.push(`<div>${U.icon('clock')} Arrive by <b>${U.esc(L.fmtTime(ab, tz))}</b></div>`);
+    if (!e.time_tbd) lines.push(`<div>${U.icon('clock')} ${U.esc(L.fmtTime(e.starts_at, tz))} – ${U.esc(L.fmtTime(L.eventEnd(e, team), tz))}</div>`);
+    if (e.location) lines.push(`<div>${U.icon('pin')} <a href="${U.esc(L.mapsUrl(e.location, U.isIOS))}" target="_blank" rel="noopener">${U.esc(e.location)}</a></div>`);
+    if (e.notes) lines.push(`<div class="muted">${U.esc(e.notes)}</div>`);
+    if (ctx.overlapWith?.length) lines.push(`<div class="tiny" style="color:var(--maybe)">${U.icon('alert')} Overlaps ${ctx.overlapWith.map(o => `${U.esc(o.team.emoji)} ${U.esc(L.eventTitle(o.event))}`).join(', ')}</div>`);
+    return `<div class="meta">${lines.join('')}</div>`;
+  };
+
+  U.eventDetail = (ctx) => {
+    const { b, e, team, slug, isCoach } = ctx;
+    const s = L.summarizeRsvps(b.players, b.rsvps.filter(r => r.event_id === e.id), team.min_players);
+    const actions = `<div class="cluster" style="margin-top:14px">
+      <button class="btn btn-sm" ${U.dataAttrs({ action: 'add-cal-event', slug, event: e.id })}>${U.icon('calendar')} Add to calendar</button>
+      <button class="btn btn-sm" ${U.dataAttrs({ action: 'share-event', slug, event: e.id })}>${U.icon('share')} Share</button>
+      ${isCoach ? `<button class="btn btn-sm btn-primary" ${U.dataAttrs({ action: 'coach-menu', slug, event: e.id })}>${U.icon('edit')} Manage</button>` : ''}</div>`;
+    return `${metaLines(ctx)}<div style="margin-top:12px">${U.rsvpBlock(ctx)}</div>${e.status !== 'cancelled' ? U.headcountLine(s, team.min_players) : ''}${U.whoIsGoing(ctx, s)}${U.volunteerRoles(ctx)}${actions}`;
+  };
+
+  const myStatusPills = (ctx) => ctx.kids.map(k => {
+    const r = ctx.b.rsvps.find(x => x.event_id === ctx.e.id && x.player_id === k.id);
+    return `<span title="${kidName(k)}">${ctx.kids.length > 1 ? `<span class="tiny muted">${U.esc(k.first_name)} </span>` : ''}${U.statusPill(r?.status)}</span>`;
+  }).join('');
+
+  U.eventRow = (ctx) => {
+    const { e, team, slug, expanded, now, readOnly } = ctx; const tz = tzOf(team);
+    const diff = L.dayDiff(e.starts_at, tz, now);
+    const dayLabel = diff === 0 ? 'Today' : diff === 1 ? 'Tmrw' : L.fmtDay(e.starts_at, tz).slice(0, 3);
+    const dateNum = L.utcToZoned(e.starts_at, tz).d;
+    // The right column shows this household's answers when there are any to show,
+    // and falls back to the badges. Badges appear under the title only when the
+    // right column isn't already carrying them, so they never render twice.
+    const pills = e.status === 'cancelled' || readOnly || L.isPast(e, team, now) ? '' : myStatusPills(ctx);
+    const right = pills || U.badges(ctx);
+    const flagged = e.status !== 'scheduled' || e.rescheduled_from || e.time_tbd;
+    return `<div class="row-wrap" id="event-${e.id}">
+      <button type="button" class="row ${e.status === 'cancelled' ? 'cancelled' : ''}" ${U.dataAttrs({ action: 'toggle-event', slug, event: e.id })} aria-expanded="${expanded}">
+        <div class="row-when"><div class="row-day">${U.esc(dayLabel)} ${dateNum}</div><div class="row-time">${e.time_tbd ? 'TBD' : timeHtml(e.starts_at, tz, '<br>')}</div></div>
+        <div class="row-body"><div class="row-title">${ctx.showTeam ? U.esc(team.emoji) + ' ' : ''}${U.esc(L.eventTitle(e))}</div>
+          <div class="row-sub">${U.esc(e.location || team.default_location || '')}</div>
+          ${pills && flagged ? `<div style="margin-top:4px">${U.badges(ctx)}</div>` : ''}</div>
+        <div class="row-right">${right}</div>
+      </button>
+      ${expanded ? `<div class="row-detail">${U.eventDetail(ctx)}</div>` : ''}</div>`;
+  };
+
+  U.hero = (ctx, { alsoToday = [] } = {}) => {
+    const { e, team, now, slug } = ctx; const tz = tzOf(team);
+    const later = alsoToday.filter(x => x.id !== e.id).map(x => `<button class="btn btn-sm btn-ghost" ${U.dataAttrs({ action: 'open-event', slug, event: x.id })}>Later today: ${U.esc(L.fmtTime(x.starts_at, tz))} ${U.esc(L.eventTitle(x))} ${U.icon('chevron')}</button>`).join('');
+    return `<section class="hero ${e.status === 'cancelled' ? 'cancelled' : ''}" id="event-${e.id}" aria-label="Up next">
+      <div class="cluster" style="justify-content:space-between"><span class="kicker">${L.isNow(e, team, now) ? 'Happening now' : 'Up next'}${ctx.showTeam ? ` · ${U.esc(team.emoji)} ${U.esc(team.name)}` : ''}</span><span>${U.badges(ctx)}</span></div>
+      <div class="hero-when"><span class="hero-day">${U.esc(L.relativeDay(e.starts_at, tz, now))}</span><span class="hero-time">${e.time_tbd ? 'Time TBD' : U.esc(L.fmtTime(e.starts_at, tz))}</span></div>
+      <div class="hero-title">${U.esc(L.eventTitle(e))}${e.kind === 'game' && e.home != null ? ` <span class="pill" style="background:var(--surface-2);vertical-align:middle">${e.home ? 'Home' : 'Away'}</span>` : ''}</div>
+      ${U.eventDetail(ctx)}${later ? `<div style="margin-top:10px">${later}</div>` : ''}</section>`;
+  };
+
+  U.needsRow = (item, ctx) => {
+    const tz = tzOf(item.team);
+    if (item.kind === 'poll') return `<div class="strip-row"><div style="flex:1"><b>Vote:</b> ${U.esc(item.poll.title)}${ctx.multiKid ? ` <span class="tiny muted">· ${kidName(item.player)}</span>` : ''}</div><button class="btn btn-sm btn-primary" ${U.dataAttrs({ action: 'open-poll', slug: item.team.slug, poll: item.poll.id })}>Vote</button></div>`;
+    const e = item.event;
+    return `<div class="strip-row" style="flex-wrap:wrap"><div style="flex:1;min-width:140px"><b>${U.esc(L.relativeDay(e.starts_at, tz, ctx.now))}</b> <span class="muted">${e.time_tbd ? 'TBD' : U.esc(L.fmtTime(e.starts_at, tz))}</span><div class="tiny muted">${U.esc(item.team.emoji)} ${U.esc(L.eventTitle(e))}${ctx.multiKid ? ` · ${kidName(item.player)}` : ''}</div></div>
+      <div style="flex-basis:100%;margin-top:6px">${U.rsvpControl({ slug: item.team.slug, e, kid: item.player, status: null })}</div></div>`;
+  };
+
+  U.pollCard = (ctx, poll) => {
+    const { b, team, kids, slug, readOnly, isCoach } = ctx; const tz = tzOf(team);
+    const slots = b.slots.filter(s => s.poll_id === poll.id);
+    const tally = (slotId) => { const v = b.votes.filter(x => x.slot_id === slotId); return { yes: v.filter(x => x.choice === 'yes').length, ifneeded: v.filter(x => x.choice === 'ifneeded').length, no: v.filter(x => x.choice === 'no').length }; };
+    const rows = slots.map(s => {
+      const t = tally(s.id);
+      const controls = readOnly ? '' : kids.map(k => {
+        const mine = b.votes.find(v => v.slot_id === s.id && v.player_id === k.id)?.choice;
+        const btn = (choice, label, glyph) => `<button type="button" class="${mine === choice ? 'on-' + (choice === 'yes' ? 'going' : choice === 'no' ? 'out' : 'maybe') : ''}" ${U.dataAttrs({ action: 'vote', slug, slot: s.id, player: k.id, choice })} aria-pressed="${mine === choice}" aria-label="${label} for ${kidName(k)}">${glyph} ${label}</button>`;
+        return `${kids.length > 1 ? `<div class="rsvp-kid">${kidName(k)}</div>` : ''}<div class="rsvp">${btn('yes', 'Yes', '✅')}${btn('ifneeded', 'If needed', '🤷')}${btn('no', 'No', '❌')}</div>`;
+      }).join('');
+      const names = isCoach ? `<div class="tiny muted" style="margin-top:4px">${['yes', 'ifneeded', 'no'].map(c => { const ps = b.votes.filter(v => v.slot_id === s.id && v.choice === c).map(v => b.players.find(p => p.id === v.player_id)).filter(Boolean); return ps.length ? `${c === 'yes' ? '✅' : c === 'no' ? '❌' : '🤷'} ${ps.map(kidName).join(', ')}` : ''; }).filter(Boolean).join(' · ')}</div>` : '';
+      return `<div style="padding:12px 0;border-top:1px solid var(--line)"><div class="cluster" style="justify-content:space-between"><b>${U.esc(L.fmtWhen(s.starts_at, tz))}</b><span class="tiny muted">✅ ${t.yes} · 🤷 ${t.ifneeded} · ❌ ${t.no}</span></div>${names}<div style="margin-top:8px">${controls}</div>
+        ${isCoach ? `<button class="btn btn-sm" style="margin-top:8px" ${U.dataAttrs({ action: 'coach-poll-convert', slug, poll: poll.id, slot: s.id })}>Make this the practice</button>` : ''}</div>`;
+    }).join('');
+    return `<div class="card card-pad" id="poll-${poll.id}"><div class="cluster" style="justify-content:space-between"><h3>${U.icon('users')} ${U.esc(poll.title)}</h3>${isCoach ? `<button class="btn btn-sm btn-ghost" ${U.dataAttrs({ action: 'coach-poll-close', slug, poll: poll.id })}>Close poll</button>` : ''}</div>
+      ${!kids.length && !readOnly ? '<p class="tiny muted">Pick your player to vote.</p>' : ''}${readOnly ? '<p class="tiny muted">Tap your invite link to vote.</p>' : ''}${rows}</div>`;
+  };
+
+  U.postItem = (post, team, { isNew, isCoach, slug } = {}) => `<div class="post ${post.pinned ? 'pinned' : ''}">
+    <div style="white-space:pre-wrap">${post.pinned ? U.icon('star') + ' ' : ''}${U.esc(post.body)}</div>
+    <div class="post-meta">${isNew ? '<span class="badge badge-new">New</span> ' : ''}${U.esc(L.relativeTime(post.created_at, new Date(), tzOf(team)))}${isCoach ? ` · <button class="btn btn-ghost btn-sm" style="min-height:26px;padding:0 6px" ${U.dataAttrs({ action: 'coach-post-edit', slug, post: post.id })}>Edit</button>` : ''}</div></div>`;
+
+  // A month cell is ~37px of usable width, so the dot time is squeezed hard:
+  // "10:00 AM" → "10a", "5:30 PM" → "5:30p". Longer than that and the cell ellipsises it.
+  const dotTime = (iso, tz) => L.fmtTime(iso, tz).replace(':00', '').replace(/\s/, '').toLowerCase().replace(/m$/, '');
+  // The caller stamps each event with `_tz` (its team's tz) before merging teams so a
+  // dot can format its own time; `colorFor(event)` maps an event to its team colour.
+  U.monthGrid = (grid, { selectedKey, colorFor, teamColorFor } = {}) => {
+    const color = colorFor || teamColorFor || (() => 'var(--team)');
+    const dows = ['S', 'M', 'T', 'W', 'T', 'F', 'S'].map(d => `<div class="dow">${d}</div>`).join('');
+    const cells = grid.weeks.flat().map(c => `<button type="button" class="month-cell ${c.inMonth ? '' : 'out'} ${c.isToday ? 'today' : ''} ${c.key === selectedKey ? 'sel' : ''}" ${U.dataAttrs({ action: 'month-day', key: c.key })} aria-label="${U.esc(c.key)}">
+      <div class="d">${c.d}</div>${c.events.slice(0, 2).map(e => `<div class="month-dot ${e.status === 'cancelled' ? 'cancelled' : ''}" style="background:${U.esc(color(e))}">${e.kind === 'game' ? 'G' : e.kind === 'practice' ? 'P' : '•'}${e.time_tbd ? '' : ' ' + U.esc(dotTime(e.starts_at, e._tz || 'America/New_York'))}</div>`).join('')}${c.events.length > 2 ? `<div class="tiny muted" style="text-align:center">+${c.events.length - 2}</div>` : ''}</button>`).join('');
+    return `<div class="month"><div class="month-head"><button class="btn btn-ghost btn-sm" data-action="month-nav" data-dir="-1" aria-label="Previous month">${U.icon('arrow-left')}</button><span>${U.esc(grid.label)}</span><button class="btn btn-ghost btn-sm" data-action="month-nav" data-dir="1" aria-label="Next month">${U.icon('arrow-right')}</button></div><div class="month-grid">${dows}${cells}</div></div>`;
   };
 
   globalThis.UI = U;
