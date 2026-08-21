@@ -37,14 +37,39 @@
 
   // ---- toast ----
   let toastEl = null, toastTimer = null;
+  const dropToast = (el) => {                 // retire `el` without touching a newer toast
+    if (toastEl === el) { toastEl = null; clearTimeout(toastTimer); }
+    el.__mo?.disconnect(); el.__mo = null;
+    el.remove();
+  };
   U.toast = (message, { action, duration = 4500 } = {}) => {
     if (toastEl) toastEl.remove();
     clearTimeout(toastTimer);
-    toastEl = document.createElement('div'); toastEl.className = 'toast'; toastEl.setAttribute('role', 'status');
-    toastEl.innerHTML = `<span>${U.esc(message)}</span>${action ? `<button class="toast-action" type="button">${U.esc(action.label)}</button>` : ''}`;
-    if (action) toastEl.querySelector('button').onclick = () => { action.onClick(); toastEl.remove(); toastEl = null; };
-    document.body.appendChild(toastEl);
-    toastTimer = setTimeout(() => { toastEl?.remove(); toastEl = null; }, duration);
+    const el = document.createElement('div');
+    el.className = 'toast'; el.setAttribute('role', 'status');
+    el.innerHTML = `<span>${U.esc(message)}</span>${action ? `<button class="toast-action" type="button">${U.esc(action.label)}</button>` : ''}`;
+    // Retire this toast *before* running the handler, so a toast the handler
+    // raises itself (Undo -> "Undone") is not torn down on the way out.
+    if (action) el.querySelector('button').onclick = () => { dropToast(el); action.onClick(); };
+    toastEl = el;
+    // A <dialog> sits in the top layer and paints above any z-index, so a toast
+    // raised while the sheet is open has to live inside the dialog to be seen.
+    const d = document.getElementById('sheet');
+    if (d?.open) {
+      d.appendChild(el);
+      // close() drops the `open` attribute. Watch the attribute rather than the
+      // 'close' event: observer callbacks are microtasks and still run when the
+      // tab is hidden, so the toast always finds its way back out of the dialog.
+      el.__mo = new MutationObserver(() => {
+        if (d.open) return;
+        el.__mo.disconnect(); el.__mo = null;
+        if (el.isConnected) document.body.appendChild(el);
+      });
+      el.__mo.observe(d, { attributes: true, attributeFilter: ['open'] });
+    } else {
+      document.body.appendChild(el);
+    }
+    toastTimer = setTimeout(() => dropToast(el), duration);
   };
 
   // ---- sheet ----
@@ -56,20 +81,32 @@
     }
     return d;
   };
+  const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+  const focusInto = (d, root) => {
+    // showModal() only focuses on the first open; re-populating an open sheet needs this too.
+    const t = root.querySelector('[autofocus]') || root.querySelector(FOCUSABLE);
+    if (t) { t.focus(); } else { d.tabIndex = -1; d.focus(); }
+  };
   U.sheet = ({ title, html, className = '', onOpen }) => {
     const d = dialog();
     d.className = ('sheet ' + className).trim();
-    d.innerHTML = `<div class="sheet-handle"></div>${title ? `<div class="sheet-title">${U.esc(title)}</div>` : ''}<div class="sheet-body">${html}</div>`;
+    const liveToast = toastEl && toastEl.parentElement === d ? toastEl : null;   // survive the innerHTML swap
+    d.innerHTML = `<div class="sheet-handle"></div>${title ? `<div class="sheet-title" id="sheet-title">${U.esc(title)}</div>` : ''}<div class="sheet-body">${html}</div>`;
+    if (liveToast) d.appendChild(liveToast);
+    if (title) { d.setAttribute('aria-labelledby', 'sheet-title'); d.removeAttribute('aria-label'); }
+    else { d.setAttribute('aria-label', 'Dialog'); d.removeAttribute('aria-labelledby'); }
     if (!d.open) d.showModal();
     const root = d.querySelector('.sheet-body');
     if (onOpen) onOpen(root);
+    focusInto(d, root);
     return { close: () => d.close(), root };
   };
   U.closeSheet = () => { const d = document.getElementById('sheet'); if (d?.open) d.close(); };
-  U.confirm = ({ title, body, confirmLabel = 'OK', danger = false }) => new Promise((resolve) => {
+  U.confirm = ({ title, body, confirmLabel = 'OK', cancelLabel = 'Cancel', danger = false }) => new Promise((resolve) => {
+    // On a destructive confirm the safe choice takes focus, so a stray Enter cancels.
     const { close, root } = U.sheet({ title, html: `<p>${U.esc(body)}</p><div class="sheet-actions">
       <button class="btn ${danger ? 'btn-danger' : 'btn-primary'}" type="button" data-ok>${U.esc(confirmLabel)}</button>
-      <button class="btn btn-ghost" type="button" data-cancel>Cancel</button></div>` });
+      <button class="btn btn-ghost" type="button" data-cancel${danger ? ' autofocus' : ''}>${U.esc(cancelLabel)}</button></div>` });
     const d = document.getElementById('sheet');
     const done = (v) => { resolve(v); close(); };
     root.querySelector('[data-ok]').onclick = () => done(true);
