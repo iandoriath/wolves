@@ -5,14 +5,16 @@
   const write = (k, v) => { try { localStorage.setItem(K(k), JSON.stringify(v)); } catch {} };
   const S = { household: [], codes: {}, bundles: {}, isCoach: false, online: typeof navigator === 'undefined' ? true : navigator.onLine,
     view: 'list', prevSeen: {}, lastSeen: {}, pending: [], pendingKids: [], listeners: new Set() };
-  const emit = (reason, extra = {}) => S.listeners.forEach(fn => { try { fn({ reason, ...extra }); } catch (e) { console.error(e); } });
+  const emit = (reason, extra = {}) => [...S.listeners].forEach(fn => { try { fn({ reason, ...extra }); } catch (e) { console.error(e); } });
   S.subscribe = (fn) => { S.listeners.add(fn); return () => S.listeners.delete(fn); };
 
   function migrateLegacy() {
     for (const slug of SITE_CONFIG.TEAM_SLUGS) {
-      const v = Number(localStorage.getItem('kid:' + slug));
-      if (v) { S.household = [...new Set([...S.household, v])]; localStorage.removeItem('kid:' + slug); write('household', S.household); }
-      localStorage.removeItem('cache:' + slug);
+      try {
+        const v = Number(localStorage.getItem('kid:' + slug));
+        if (v) { S.household = [...new Set([...S.household, v])]; localStorage.removeItem('kid:' + slug); write('household', S.household); }
+        localStorage.removeItem('cache:' + slug);
+      } catch {}
     }
   }
 
@@ -26,11 +28,12 @@
     for (const p of c.pairs) S.setCode(p.slug, p.code, true);
     const kids = String(params.get('kids') || '').split(',').map(Number).filter(Boolean);
     if (kids.length) S.pendingKids = kids;
-    Api.init(Object.values(S.codes));
+    if (globalThis.Api) Api.init(Object.values(S.codes));
     try { S.isCoach = !!(await Api.session()); } catch { S.isCoach = false; }
     window.addEventListener('online', () => { S.online = true; emit('online'); S.flush().then(() => S.refreshAll()); });
     window.addEventListener('offline', () => { S.online = false; emit('offline'); });
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { S.flush().then(() => S.refreshAll()); } });
+    if (S.pending.length && S.online) S.flush();
   };
 
   S.setCode = (slug, code, quiet) => { S.codes[slug] = String(code).trim().toUpperCase(); write('codes', S.codes); if (globalThis.Api) Api.init(Object.values(S.codes)); if (!quiet) emit('codes', { slug }); };
@@ -39,13 +42,13 @@
   S.setHousehold = (ids) => { S.household = [...new Set(ids.map(Number).filter(Boolean))]; write('household', S.household); emit('household'); };
   S.addKids = (ids) => S.setHousehold([...S.household, ...ids]);
   S.kidsOn = (b) => b.players.filter(p => p.active && S.household.includes(p.id));
-  S.myTeams = () => Object.values(S.bundles).filter(b => S.kidsOn(b).length);
+  S.myTeams = () => Object.values(S.bundles).filter(b => b && S.kidsOn(b).length);
   S.setView = (v) => { S.view = v; write('view', v); };
   S.markSeen = (slug) => { S.lastSeen[slug] = new Date().toISOString(); write('lastSeen', S.lastSeen); };
   S.dismissChanges = (slug) => { S.prevSeen[slug] = new Date().toISOString(); };
 
   // ---- data ----
-  S.cached = (slug) => S.bundles[slug] || (S.bundles[slug] = read('cache:' + slug, null));
+  S.cached = (slug) => { const c = S.bundles[slug] || read('cache:' + slug, null); if (c) S.bundles[slug] = c; return c || null; };
   const overlayPending = (b) => {                       // keep optimistic state on top of fresh server data
     for (const op of S.pending) {
       if (op.slug !== b.team.slug) continue;
@@ -65,7 +68,7 @@
   };
   S.loadTeams = async (slugs) => {
     for (const slug of slugs) if (S.cached(slug)) emit('data', { slug, cached: true });
-    await Promise.allSettled(slugs.map(s => S.fetchTeam(s).catch(err => { emit('fetchError', { slug, err }); throw err; })));
+    await Promise.allSettled(slugs.map(s => S.fetchTeam(s).catch(err => { emit('fetchError', { slug: s, err }); throw err; })));
   };
   S.refreshAll = () => Promise.allSettled(Object.keys(S.bundles).map(s => S.fetchTeam(s).catch(() => {})));
 
@@ -74,7 +77,14 @@
   const setVote = (b, slot_id, player_id, choice) => { b.votes = b.votes.filter(v => !(v.slot_id === slot_id && v.player_id === player_id)); if (choice) b.votes.push({ slot_id, player_id, choice }); };
   const setClaim = (b, event_id, role, player_id) => { b.claims = b.claims.filter(c => !(c.event_id === event_id && c.role === role)); if (player_id) b.claims.push({ event_id, role, player_id }); };
   const touch = (slug) => { write('cache:' + slug, S.bundles[slug]); emit('data', { slug, optimistic: true }); };
-  const enqueue = (op) => { S.pending = L.coalescePending(S.pending, { ...op, ts: new Date().toISOString() }); write('pending', S.pending); S.flush(); };
+  const enqueue = (op) => {
+    const existing = S.pending.find(o => L.opKey(o) === L.opKey(op));
+    const merged = { ...op, ts: new Date().toISOString() };
+    if (existing) merged.prev = existing.prev;
+    S.pending = L.coalescePending(S.pending, merged);
+    write('pending', S.pending);
+    S.flush();
+  };
   S.hasPending = () => S.pending.length > 0;
 
   S.rsvp = (slug, event_id, player_id, status, note) => {
@@ -107,7 +117,7 @@
     if (op.kind === 'claim') return Api.claimRole(op.event_id, op.role, op.player_id);
     if (op.kind === 'unclaim') return Api.unclaimRole(op.event_id, op.role);
   };
-  const isNetworkError = (e) => !navigator.onLine || /fetch|network|load failed|timeout/i.test(String(e?.message || e));
+  const isNetworkError = (e) => (typeof navigator !== 'undefined' && !navigator.onLine) || /fetch|network|load failed|timeout/i.test(String(e?.message || e));
   const revert = (op) => {
     const b = S.bundles[op.slug]; if (!b) return;
     if (op.kind === 'rsvp') setRsvp(b, op.event_id, op.player_id, op.prev);
@@ -121,12 +131,18 @@
     flushing = (async () => {
       while (S.pending.length) {
         const op = S.pending[0];
+        if (!S.online) { emit('queued', { op }); break; }
         try { await perform(op); }
         catch (err) {
           if (isNetworkError(err)) { emit('queued', { op }); break; }      // keep it; retry on online/visible
-          S.pending.shift(); write('pending', S.pending); revert(op); emit('error', { op, err }); continue;
+          if (S.pending[0] === op) { S.pending.shift(); write('pending', S.pending); }
+          const superseded = S.pending.some(o => L.opKey(o) === L.opKey(op));
+          if (!superseded) revert(op);
+          emit('error', { op, err }); continue;
         }
-        S.pending.shift(); write('pending', S.pending);
+        // A same-key op may have been coalesced into a replacement (appended at the tail)
+        // while `op` was in flight — only remove it from the queue if it's still there.
+        if (S.pending[0] === op) { S.pending.shift(); write('pending', S.pending); }
       }
     })().finally(() => { flushing = null; });
     return flushing;
