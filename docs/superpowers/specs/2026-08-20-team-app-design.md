@@ -143,7 +143,7 @@ Client sends the header via `createClient(url, key, { global: { headers: { 'x-te
 
 Idempotent where practical (`if not exists`, `drop policy if exists`). Steps:
 1. `coaches` table; insert `idelorey@gmail.com`. `is_coach()`.
-2. `team_secrets`; insert a random 6-char code per team (`upper(substr(md5(random()::text),1,6))`). `request_team_codes()`, `team_code_ok()`, `event_team()`, `slot_team()`.
+2. `team_secrets`; insert a random 8-char code per team from pgcrypto's CSPRNG (`upper(encode(gen_random_bytes(4), 'hex'))`). `request_team_codes()`, `team_code_ok()`, `event_team()`, `slot_team()`.
 3. `teams`: add columns; drop `announcement` after moving any non-empty value into `posts` (pinned).
 4. `events`: add columns; `status` from `cancelled`; drop `cancelled`.
 5. `rsvps`: widen status check to include `maybe`; add `note`; trigger.
