@@ -3,12 +3,17 @@
    hero, polls, list/month schedule and the footer sheets.
 
    ES module. Reads Store (store.js), UI (ui.js), ScheduleLib (schedule_lib.js)
-   and whichever Api is live (api.js, or mock_api.js under ?mock=).
-   Exposes globalThis.HomePage so coach_sheets wiring can extend `actions`
-   and call back into render()/ctxFor(). */
+   and whichever Api is live (api.js, or mock_api.js under ?mock=). Coach forms live in
+   coach_sheets.js; this file resolves their data-attributes and hands them the rows. */
 
 const L = globalThis.ScheduleLib, S = globalThis.Store, U = globalThis.UI;
 const params = new URLSearchParams(location.search);
+// Which teams this page load was *invited* to (?team=…&c=CODE, or ?c=slug:code pairs).
+// If one of those comes back with an empty roster the code is stale, not merely absent.
+const urlCoded = new Set((() => {
+  const c = L.parseCodeParam(params.get('c'));
+  return c.single && params.get('team') ? [params.get('team')] : c.pairs.map(p => p.slug);
+})());
 const app = document.getElementById('app'), topEl = document.getElementById('topbar');
 const ORIGIN = SITE_CONFIG.ORIGIN;
 const DEFAULT_COLOR = '#2d6a4f';
@@ -24,6 +29,9 @@ const ui = {
   pendingEventOpen: Number(params.get('event')) || null,
   pendingPollOpen: Number(params.get('poll')) || null,
   booted: false,
+  // A rejected invite code, kept so the re-render puts it back in the field to be fixed
+  // rather than making the parent type all eight characters again.
+  codeDraft: null,
 };
 const ls = {
   get: (k) => { try { return localStorage.getItem('wolves:' + k); } catch { return null; } },
@@ -39,6 +47,10 @@ async function boot() {
   app.addEventListener('click', onClick);
   // 'toggle' doesn't bubble, so the <details> state has to be caught on the way down.
   app.addEventListener('toggle', onToggle, true);
+  // The invite-code form is a real <form> so iOS puts "Go" on the keyboard; the Enter key
+  // reaches the handler through the implicit click on the submit button, and this only has
+  // to stop the browser navigating away afterwards.
+  app.addEventListener('submit', onSubmit);
   topEl.addEventListener('click', onClick);
   if (ui.teamFilter !== 'all' && !SITE_CONFIG.TEAM_SLUGS.includes(ui.teamFilter)) ui.teamFilter = 'all';
   // An invite link is an explicit "set me up on this team", so it outranks a previous
@@ -53,6 +65,10 @@ function onToggle(ev) {
   if (ev.target.matches?.('details[data-posts]')) ui.postsOpen = ev.target.open;
 }
 function onStore(ev) {
+  // While a hand-typed code is being checked the store passes through states this page must
+  // not paint: the code is set but the roster hasn't arrived, which looks exactly like the
+  // fabricated-zeros bug. The check renders once itself when it knows the answer.
+  if (checkingCode && (ev.reason === 'data' || ev.reason === 'codes')) return;
   if (ev.reason === 'data' || ev.reason === 'household' || ev.reason === 'online' || ev.reason === 'offline' || ev.reason === 'codes') render();
   if (ev.reason === 'error') U.toast('Couldn’t save — try again');
   if (ev.reason === 'queued') U.toast('You’re offline — saved on this phone, will sync when you’re back online');
@@ -69,9 +85,14 @@ function teamsInView() {
   return S.isCoach ? allBundles() : [];
 }
 const now = () => new Date();
+// Read-only is "this phone can't see the roster", not just "this phone has no code":
+// a code that was regenerated still passes hasCode, but RLS answers it with an empty
+// roster — and a screen of "0 going · 0 no reply" reads as a real, terrible headcount.
+// A team with nobody on it yet has nothing to RSVP for either, so it lands here too.
+const canSeeRoster = (b) => S.hasCode(b.team.slug) && (S.isCoach || b.players.length > 0);
 const ctxFor = (b, e, extra = {}) => ({
   b, team: b.team, e, kids: S.kidsOn(b), isCoach: S.isCoach, now: now(), slug: b.team.slug, origin: ORIGIN,
-  readOnly: !S.hasCode(b.team.slug), expanded: ui.expanded.has(e.id), showTeam: !!extra.showTeam,
+  readOnly: !canSeeRoster(b), expanded: ui.expanded.has(e.id), showTeam: !!extra.showTeam,
   overlapWith: extra.overlaps?.get(e.id), multiKid: S.household.length > 1,
   prevSeen: S.prevSeen[b.team.slug],
 });
@@ -179,11 +200,16 @@ function teamTabsHtml() {
 }
 
 // ---------- first run ----------
+// A ?c= link whose team comes back with an empty roster carried a code that has since been
+// regenerated. It has to say so wherever the parent lands — a stale link on a fresh phone
+// never reaches the schedule at all, it stops on the chooser.
+const staleSlugs = () => S.isCoach ? [] : [...urlCoded].filter(s => S.bundles[s] && S.hasCode(s) && !S.bundles[s].players.length);
+const staleNoticeHtml = () => staleSlugs().map(s => `<div class="notice notice-info">${U.icon('info')}<div><b>${U.esc(S.bundles[s].team.name)}</b>: this invite link may be out of date — ask Coach for a new one.</div></div>`).join('');
 function firstRunHtml() {
   const target = allBundles().filter(b => S.hasCode(b.team.slug) && b.players.some(p => p.active));
   if (!target.length) return teamChooserHtml(true);
   const many = target.length > 1 || target[0].players.filter(p => p.active).length > 1;
-  return `<div class="card card-pad stack" style="margin-top:8px">
+  return `<div class="card card-pad stack" style="margin-top:8px">${staleNoticeHtml()}
     <div class="kicker">Welcome</div><h1>Pick your player${many ? '(s)' : ''}</h1>
     <p class="muted">Tap the kids you’re here for — you’ll RSVP for them in one tap. No account needed. You can change this anytime.</p>
     ${pickerFormHtml(target)}
@@ -193,6 +219,27 @@ function firstRunHtml() {
 function pickerFormHtml(bundles) {
   return bundles.map(b => `<div><div class="kicker" style="margin:10px 0 6px">${U.esc(b.team.emoji)} ${U.esc(b.team.name)}</div><div class="chips" data-picker="${U.esc(b.team.slug)}">
     ${b.players.filter(p => p.active).map(p => { const on = ui.pickerSel.has(p.id); return `<button type="button" class="chip ${on ? 'on' : ''}" ${U.dataAttrs({ action: 'picker-toggle', player: p.id })} aria-pressed="${on}">${U.esc(L.displayName(p))}</button>`; }).join('')}</div></div>`).join('');
+}
+// ---------- invite code entry ----------
+// An installed Home-Screen app on iOS gets storage of its own, and a link tapped in Messages
+// opens Safari, not the installed app — so a household can hold the invite code in one place
+// and arrive at the other with none of it. Typing the eight characters in is the way back.
+let checkingCode = null;
+function codeEntryHtml(slugs, ns = '') {
+  const list = slugs.filter(s => SITE_CONFIG.TEAM_SLUGS.includes(s));
+  if (!list.length) return '';
+  const id = `code-${ns}${list.join('-')}`;
+  const draft = ui.codeDraft && list.includes(ui.codeDraft.slug) ? ui.codeDraft : null;
+  const nameOf = (s) => { const b = S.bundles[s]; return b ? `${b.team.emoji} ${b.team.name}` : s; };
+  // One team on the site (or one team in this notice) means there is nothing to choose —
+  // carry the slug in a hidden input so the handler reads it back the same way either way.
+  const picker = list.length > 1
+    ? `<select data-code-slug aria-label="Team">${list.map(s => `<option value="${U.esc(s)}"${draft?.slug === s ? ' selected' : ''}>${U.esc(nameOf(s))}</option>`).join('')}</select>`
+    : `<input type="hidden" data-code-slug value="${U.esc(list[0])}">`;
+  return `<form class="field" data-code-form style="margin:10px 0 0"><label for="${id}">Have an invite code?</label>${picker}
+    <div class="cluster"><input id="${id}" data-code-input value="${U.esc(draft?.code || '')}" maxlength="8" placeholder="8 characters" aria-label="Invite code"
+      autocapitalize="characters" autocorrect="off" autocomplete="off" spellcheck="false" inputmode="text" style="flex:1;min-width:9ch">
+      <button type="submit" class="btn btn-primary" data-action="code-submit">Continue</button></div></form>`;
 }
 function teamChooserHtml(firstRun = false) {
   const head = firstRun
@@ -204,7 +251,10 @@ function teamChooserHtml(firstRun = false) {
     return `<button type="button" class="card card-pad" style="display:flex;gap:12px;align-items:center;width:100%;text-align:left" ${U.dataAttrs({ action: 'team-tab', slug: b.team.slug })}>
       <span style="font-size:32px">${U.esc(b.team.emoji)}</span><span style="flex:1"><b>${U.esc(b.team.name)}</b><div class="tiny muted">${sub}</div></span>${U.icon('chevron')}</button>`;
   }).join('');
-  return `<div class="stack" style="margin-top:8px">${head}${cards}
+  // Offer the code field for every team this phone can't see the roster of — including one
+  // whose stored code has gone stale, which is the team the parent most needs it for.
+  const locked = allBundles().filter(b => !canSeeRoster(b)).map(b => b.team.slug);
+  return `<div class="stack" style="margin-top:8px">${staleNoticeHtml()}${head}${cards}${codeEntryHtml(locked)}
     <p class="tiny muted"><a href="coach.html">Coach</a></p></div>`;
 }
 
@@ -214,8 +264,26 @@ function homeHtml(inView) {
   const parts = [];
   // notices
   if (!S.online) parts.push(`<div class="notice notice-warn">${U.icon('alert')}<div>You’re offline — showing the saved schedule. RSVPs you tap will sync later.</div></div>`);
-  for (const b of inView) if (!S.hasCode(b.team.slug)) parts.push(`<div class="notice notice-info">${U.icon('info')}<div><b>${U.esc(b.team.name)}</b>: tap your invite link to RSVP and see who’s going.</div></div>`);
-  if (U.isIOS && !U.isStandalone && !ls.get('installHintDismissed') && S.household.length) parts.push(`<div class="notice notice-info">${U.icon('share')}<div>Add this to your Home Screen: tap <b>Share</b> then <b>Add to Home Screen</b>. <button class="btn btn-ghost btn-sm" data-action="install-dismiss">Got it</button></div></div>`);
+  // One notice per team this phone can't see the roster for, each with the code field.
+  // A team that *has* a code and still comes back with an empty roster was invited with a
+  // code that has since been regenerated — say so rather than "tap your invite link".
+  for (const b of inView) {
+    if (S.isCoach || canSeeRoster(b)) continue;
+    const stale = S.hasCode(b.team.slug) || urlCoded.has(b.team.slug);
+    parts.push(`<div class="notice notice-info">${U.icon('info')}<div><b>${U.esc(b.team.name)}</b>: ${stale
+      ? 'this invite link may be out of date — ask Coach for a new one.'
+      : 'tap your invite link to RSVP and see who’s going.'}${codeEntryHtml([b.team.slug])}</div></div>`);
+  }
+  if (U.isIOS && !U.isStandalone && !ls.get('installHintDismissed') && S.household.length) {
+    // The installed app starts with empty storage, so print the codes this household is
+    // using: they are the one thing the parent can't recover from inside the new app.
+    const pairs = S.codePairs().filter(p => myBundles().some(b => b.team.slug === p.slug));
+    const nameOf = (slug) => S.bundles[slug]?.team.name || slug;
+    const codes = !pairs.length ? ''
+      : ` If your players don’t show in the installed app, enter your team code${pairs.length > 1 ? 's' : ''}: `
+        + pairs.map(p => `<b>${pairs.length > 1 ? U.esc(nameOf(p.slug)) + ': ' : ''}${U.esc(p.code)}</b>`).join(' · ');
+    parts.push(`<div class="notice notice-info">${U.icon('share')}<div>Add to Home Screen: tap <b>Share</b> → <b>Add to Home Screen</b>.${codes} <button class="btn btn-ghost btn-sm" data-action="install-dismiss">Got it</button></div></div>`);
+  }
   // coach tools: every sheet writes to exactly one team, so the row only appears once
   // the view is narrowed to one — otherwise point at the tabs that narrow it.
   if (S.isCoach) parts.push(inView.length === 1
@@ -316,13 +384,20 @@ function footerHtml() {
 const refreshLabel = () => { const b = teamsInView()[0]; return b ? (S.online ? `Updated ${U.relTimeLabel(b.fetchedAt, tzOf(b))}` : 'Offline') : ''; };
 
 // ---------- sheets ----------
-const wireSheet = (root) => root.addEventListener('click', (ev) => {
-  const el = ev.target.closest('[data-action]');
-  if (el && root.contains(el)) onAction(el.dataset.action, el.dataset, el);
-});
+const wireSheet = (root) => {
+  root.addEventListener('click', (ev) => {
+    const el = ev.target.closest('[data-action]');
+    if (el && root.contains(el)) onAction(el.dataset.action, el.dataset, el);
+  });
+  root.addEventListener('submit', onSubmit);
+};
 function pickerSheet() {
   const bundles = allBundles().filter(b => S.hasCode(b.team.slug) && b.players.some(p => p.active));
-  if (!bundles.length) { U.sheet({ title: 'Pick your player', html: '<p>Tap the invite link your coach sent to pick your player.</p>' }); return; }
+  if (!bundles.length) {
+    U.sheet({ title: 'Pick your player', onOpen: wireSheet,
+      html: `<p>Tap the invite link your coach sent to pick your player.</p>${codeEntryHtml(SITE_CONFIG.TEAM_SLUGS, 'sheet-')}` });
+    return;
+  }
   U.sheet({
     title: 'My players',
     html: `${pickerFormHtml(bundles)}<div class="sheet-actions"><button class="btn btn-primary" data-action="picker-done">Done</button></div><p class="tiny muted">My player isn’t listed? Ask Coach to add them.</p>`,
@@ -458,6 +533,41 @@ const actions = {
   'coparent': () => coparentSheet(),
   'copy': async (d) => { U.toast((await U.copy(d.text)) ? 'Copied' : 'Couldn’t copy'); },
   'share-text': (d) => U.share({ title: d.title, text: d.text, url: d.url }),
+  // Try a hand-typed invite code. There is no "check this code" endpoint — the code IS the
+  // credential — so the check is: hold it, load the team, and see whether a roster comes
+  // back. A code that doesn't open one is rolled straight back out of storage, because a
+  // stored code that doesn't work turns every headcount on the page into a fabricated zero.
+  'code-submit': async (d, el) => {
+    const form = el.closest('[data-code-form]');
+    if (!form || checkingCode) return;
+    const slug = form.querySelector('[data-code-slug]')?.value || '';
+    const code = String(form.querySelector('[data-code-input]')?.value || '').trim().toUpperCase();
+    if (!SITE_CONFIG.TEAM_SLUGS.includes(slug)) return;
+    if (!code) { U.toast('Enter the code from your coach'); return; }
+    ui.codeDraft = { slug, code };
+    el.disabled = true;
+    checkingCode = slug;
+    const had = S.codes[slug] || null;
+    let netFailed = false;
+    const unsub = S.subscribe(e => { if (e.reason === 'fetchError' && e.slug === slug) netFailed = true; });
+    S.setCode(slug, code, true);                    // quiet: onStore stays parked until we know
+    try { await S.loadTeams([slug]); } finally { unsub(); checkingCode = null; }
+    if (!netFailed && S.bundles[slug]?.players?.length) {
+      ui.codeDraft = null; ls.del('browsing');
+      ui.teamFilter = slug; ui.selectedDay = null; ui.pickerSel = new Set(S.household);
+      U.closeSheet(); render();
+      // A cold start renders the full-page picker itself; a household that already has
+      // players elsewhere needs the sheet to pick this team's.
+      if (!isFirstRun()) pickerSheet();
+      return;
+    }
+    if (had) S.setCode(slug, had, true); else S.clearCode(slug, true);
+    el.disabled = false;
+    render();
+    const again = document.querySelector('[data-code-form] [data-code-input]');
+    if (again) { again.focus(); again.select(); }
+    U.toast(netFailed ? 'Couldn’t check that code — try again' : 'That code didn’t work — check it with Coach');
+  },
 };
 // ---------- coach mode ----------
 // Coach mode is this same page with extra affordances rather than a separate screen:
@@ -515,6 +625,9 @@ function onClick(ev) {
   if (el.tagName === 'A' && el.dataset.action === 'all-teams') ev.preventDefault();
   onAction(el.dataset.action, el.dataset, el);
 }
+// Enter in the code field submits the form, which the browser turns into a click on the
+// submit button — so the action has already run by the time this fires. All that is left
+// is to stop the navigation the submit would otherwise cause.
+function onSubmit(ev) { if (ev.target.closest?.('[data-code-form]')) ev.preventDefault(); }
 
-globalThis.HomePage = { actions, render, ctxFor, ui, params, onAction, findEvent, refreshIndicator, teamsInView, allBundles };
 boot();

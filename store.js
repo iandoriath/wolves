@@ -3,7 +3,9 @@
   const K = (k) => 'wolves:' + k;
   const read = (k, d) => { try { const v = localStorage.getItem(K(k)); return v == null ? d : JSON.parse(v); } catch { return d; } };
   const write = (k, v) => { try { localStorage.setItem(K(k), JSON.stringify(v)); } catch {} };
-  const S = { household: [], codes: {}, bundles: {}, isCoach: false, online: typeof navigator === 'undefined' ? true : navigator.onLine,
+  // A `navigator` with no `onLine` (Node's built-in global, older embedded webviews) must
+  // not read as "offline" — that would park every write in the pending queue forever.
+  const S = { household: [], codes: {}, bundles: {}, isCoach: false, online: typeof navigator?.onLine === 'boolean' ? navigator.onLine : true,
     view: 'list', prevSeen: {}, lastSeen: {}, pending: [], pendingKids: [], listeners: new Set() };
   const emit = (reason, extra = {}) => [...S.listeners].forEach(fn => { try { fn({ reason, ...extra }); } catch (e) { console.error(e); } });
   S.subscribe = (fn) => { S.listeners.add(fn); return () => S.listeners.delete(fn); };
@@ -37,6 +39,10 @@
   };
 
   S.setCode = (slug, code, quiet) => { S.codes[slug] = String(code).trim().toUpperCase(); write('codes', S.codes); if (globalThis.Api) Api.init(Object.values(S.codes)); if (!quiet) emit('codes', { slug }); };
+  // Used to roll back a hand-typed code that turned out not to open the roster: a code kept
+  // in storage makes hasCode() true forever, which is the difference between "you can't see
+  // this" and a screen full of zeroes.
+  S.clearCode = (slug, quiet) => { if (!(slug in S.codes)) return; delete S.codes[slug]; write('codes', S.codes); if (globalThis.Api) Api.init(Object.values(S.codes)); if (!quiet) emit('codes', { slug }); };
   S.hasCode = (slug) => S.isCoach || !!S.codes[slug];
   S.codePairs = () => Object.entries(S.codes).map(([slug, code]) => ({ slug, code }));
   S.setHousehold = (ids) => { S.household = [...new Set(ids.map(Number).filter(Boolean))]; write('household', S.household); emit('household'); };
