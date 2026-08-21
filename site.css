@@ -346,6 +346,34 @@ body:has(.fab) .toast { bottom:calc(90px + var(--sab)); }
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .month-dot.cancelled { text-decoration:line-through; opacity:.6; }
 
+/* Compact variant — the coach's inline date picker inside a sheet. Day numbers plus up
+   to three pips (game = team colour, practice = ink-3, other = maybe), no text, so the
+   sheet stays short. A picked day fills with the team colour and its pips flip to the
+   team ink to stay visible. Nav arrows keep the 44px target; day cells sit at ~38px. */
+.month.compact { padding:8px; box-shadow:none; }
+.month.compact .month-head { margin-bottom:2px; }
+.month.compact .month-head .btn { min-height:44px; min-width:44px; padding:6px 10px; }
+.month.compact .month-grid { gap:2px; }
+.month.compact .month-cell { min-height:38px; padding:3px 0 2px; gap:2px; align-items:center; justify-content:flex-start;
+  border-radius:9px; font-size:14px; }
+.month.compact .month-cell.sel { background:var(--team); color:var(--team-ink); border-color:var(--team); }
+.month.compact .month-cell.sel .d { color:var(--team-ink); }
+.month.compact .month-cell.sel.today { box-shadow:inset 0 0 0 2px var(--team-ink); }   /* today, picked: ring inside the fill */
+.month.compact .month-cell.out.sel { opacity:.6; }
+.month-pips { display:flex; gap:2px; height:5px; justify-content:center; }
+.month-pip { width:5px; height:5px; border-radius:50%; display:block; background:var(--pip, var(--team)); }
+.month-pip.cancelled { opacity:.35; }
+.month.compact .month-cell.sel .month-pip { background:var(--team-ink); }
+
+/* Poll sheet: one row per picked day — label, its own time, and a remove button. */
+.slot-row { display:flex; align-items:center; gap:10px; padding:6px 0; border-top:1px solid var(--line); }
+.slot-row:first-child { border-top:0; }
+.slot-row b { flex:1; min-width:0; }
+.slot-row input[type="time"] { min-height:44px; padding:8px 10px; border:1px solid var(--line); border-radius:var(--r-sm);
+  background:var(--surface); color:var(--ink); font-size:16px; width:auto; }
+.slot-row input[type="time"]:focus { outline:0; border-color:var(--team-text); box-shadow:0 0 0 3px var(--team-soft); }
+.chip:disabled { opacity:.5; cursor:default; }
+
 /* ---------- misc ---------- */
 .skeleton { height:72px; border-radius:var(--r); background:linear-gradient(90deg, var(--surface-2), var(--surface), var(--surface-2));
   background-size:200% 100%; animation:sk 1.2s infinite linear; }
