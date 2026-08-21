@@ -75,6 +75,19 @@
     if (!m) return null;
     return L.zonedToUtc({ y: +m[1], m: +m[2], d: +m[3], hh: +(m[4] || 0), mm: +(m[5] || 0) }, tz);
   };
+  // The coach's quick-time chips: up to n distinct 'HH:MM' wall times (24h, in tz) the
+  // team actually uses — most frequent first, ties to the most recent start. Cancelled
+  // and time-TBD events say nothing about when things happen, so they don't count.
+  L.recentTimes = (events, tz, n) => {
+    const seen = new Map();                    // 'HH:MM' → { count, last }
+    for (const e of events || []) {
+      if (!e?.starts_at || e.time_tbd || e.status === 'cancelled' || Number.isNaN(T(e.starts_at))) continue;
+      const z = L.utcToZoned(e.starts_at, tz), k = `${pad(z.hh)}:${pad(z.mm)}`;
+      const s = seen.get(k) || { count: 0, last: -Infinity };
+      s.count++; s.last = Math.max(s.last, T(e.starts_at)); seen.set(k, s);
+    }
+    return [...seen].sort((a, b) => b[1].count - a[1].count || b[1].last - a[1].last).map(([k]) => k).slice(0, n ?? Infinity);
+  };
 
   // ---------- formatting ----------
   const fmt = (iso, tz, opts) => new Date(iso).toLocaleString('en-US', { timeZone: tz, ...opts });

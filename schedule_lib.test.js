@@ -255,5 +255,24 @@ ok(!tbdBlock.includes('VALARM'), 'no alarm on all-day TBD');
 const single = L.buildEventIcs(team, icsEvents[0], O);
 ok(single.startsWith('BEGIN:VCALENDAR') && single.includes('UID:evt-5@') && !single.includes('evt-6'), 'buildEventIcs single event');
 
+// --- recentTimes: quick-time chips for the coach's pickers. Most frequent 'HH:MM' (24h, in tz) first,
+// ties broken by the most recent start; cancelled and time_tbd events do not count.
+const rtEvents = [
+  { starts_at: '2026-05-05T21:30:00Z', status: 'scheduled' },                   // Tue 5:30 PM EDT
+  { starts_at: '2026-05-12T21:30:00Z', status: 'scheduled' },                   // 5:30 PM (most recent of the pair)
+  { starts_at: '2026-05-02T14:00:00Z', status: 'scheduled' },                   // Sat 10:00 AM
+  { starts_at: '2026-05-09T14:00:00Z', status: 'scheduled' },                   // 10:00 AM
+  { starts_at: '2026-05-16T18:00:00Z', status: 'scheduled' },                   // 2:00 PM, once, newest
+  { starts_at: '2026-05-17T18:00:00Z', status: 'cancelled' },                   // ignored
+  { starts_at: '2026-05-20T13:00:00Z', status: 'scheduled', time_tbd: true },   // ignored
+  { starts_at: '2026-01-10T14:05:00Z' },                                        // 9:05 AM EST — no status field, minutes padded
+];
+eq(L.recentTimes(rtEvents, TZ, 10), ['17:30', '10:00', '14:00', '09:05'], 'recentTimes: frequency, then recency; cancelled/TBD skipped; tz-aware');
+eq(L.recentTimes(rtEvents, TZ, 2), ['17:30', '10:00'], 'recentTimes: n caps the list');
+eq(L.recentTimes(rtEvents, TZ), ['17:30', '10:00', '14:00', '09:05'], 'recentTimes: no n returns every distinct time');
+eq(L.recentTimes([], TZ, 3), [], 'recentTimes: empty');
+eq(L.recentTimes([{ starts_at: '2026-05-17T18:00:00Z', status: 'cancelled' }, { starts_at: '2026-05-18T18:00:00Z', time_tbd: true }], TZ, 3), [], 'recentTimes: nothing countable');
+eq(L.recentTimes(rtEvents, 'America/Los_Angeles', 1), ['14:30'], 'recentTimes: wall time follows tz');
+
 console.log(fails ? `${fails}/${count} FAILURES` : `ALL PASS (${count})`);
 process.exit(fails ? 1 : 0);
