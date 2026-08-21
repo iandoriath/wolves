@@ -207,6 +207,7 @@
     return L.zonedToUtc({ y: dt.getUTCFullYear(), m: dt.getUTCMonth() + 1, d: dt.getUTCDate(), hh: z.hh, mm: z.mm }, tz);
   };
   L.expandWeekly = (firstIso, tz, { count, until, everyWeeks = 1 } = {}) => {
+    everyWeeks = Math.max(1, Number(everyWeeks) || 1);
     const out = [];
     const max = Math.min(count || 60, 60);
     let cur = firstIso;
@@ -235,9 +236,19 @@
     : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}`;
   const icsStamp = (iso) => new Date(iso).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
   L.icsStamp = icsStamp;
-  L.googleCalUrl = (e, team) => {
-    const q = new URLSearchParams({ action: 'TEMPLATE', text: `${team.emoji} ${team.name} ${L.eventTitle(e)}`.trim(),
-      dates: `${icsStamp(e.starts_at)}/${icsStamp(L.eventEnd(e, team))}`, location: e.location || '', details: e.notes || '' });
+  L.googleCalUrl = (e, team, origin) => {
+    const tz = team.tz;
+    const text = `${e.status === 'cancelled' ? 'CANCELLED — ' : ''}${team.emoji} ${team.name} ${L.eventTitle(e)}`.trim();
+    let dates;
+    if (e.time_tbd) {
+      const d = L.dateKey(e.starts_at, tz);
+      const next = new Date(keyMs(d) + 86400000).toISOString().slice(0, 10);
+      dates = `${d.replace(/-/g, '')}/${next.replace(/-/g, '')}`;
+    } else {
+      dates = `${icsStamp(e.starts_at)}/${icsStamp(L.eventEnd(e, team))}`;
+    }
+    const details = [e.notes, L.eventLink(origin, team.slug, e.id)].filter(Boolean).join('\n');
+    const q = new URLSearchParams({ action: 'TEMPLATE', text, dates, location: e.location || '', details });
     return `https://calendar.google.com/calendar/render?${q.toString().replace(/\+/g, '%20')}`;
   };
 
@@ -266,19 +277,43 @@
   L.composeEventShare = ({ team, event, link }) => `${L.eventLine(team, event)}${event.notes ? '\n' + event.notes : ''}\n${link}`;
 
   // ---------- roster paste ----------
-  L.parseRosterPaste = (text) => String(text || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean).map(line => {
-    const [first, ...rest] = line.split(/\s+/);
-    const initial = rest.length ? rest[0].replace(/[^A-Za-z]/g, '').charAt(0).toUpperCase() : '';
-    return { first_name: first.replace(/[.,]+$/, ''), last_initial: initial || null };
-  });
+  L.parseRosterPaste = (text) => {
+    const hasLetter = (s) => /\p{L}/u.test(s);
+    const firstLetterUpper = (s) => { const m = /\p{L}/u.exec(s || ''); return m ? m[0].toUpperCase() : null; };
+    const nameFromTokens = (tokens) => {
+      let i = 0; while (i < tokens.length && !hasLetter(tokens[i])) i++;   // skip jersey numbers etc.
+      const rest = tokens.slice(i);
+      if (!rest.length) return null;
+      return { first_name: rest[0].replace(/[.,]+$/, ''), last_initial: rest.length > 1 ? firstLetterUpper(rest[1]) : null };
+    };
+    const parsePiece = (piece) => {
+      const p = String(piece).trim();
+      if (!p) return [];
+      const commas = (p.match(/,/g) || []).length;
+      if (commas >= 2) return p.split(',').flatMap(parsePiece);
+      if (commas === 1) {
+        const [beforeRaw, afterRaw] = p.split(',');
+        const after = nameFromTokens((afterRaw || '').trim().split(/\s+/).filter(Boolean));
+        return after ? [{ first_name: after.first_name, last_initial: firstLetterUpper(beforeRaw) }] : [];
+      }
+      const name = nameFromTokens(p.split(/\s+/).filter(Boolean));
+      return name ? [name] : [];
+    };
+    return String(text || '').split(/\r?\n|;/).flatMap(parsePiece);
+  };
 
   // ---------- ICS ----------
   const icsEsc = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/,/g, '\\,').replace(/;/g, '\\;').replace(/\r?\n/g, '\\n');
-  const fold = (line) => {                    // RFC 5545: fold at 75 octets; we fold by code points (≤ 75 chars, safe for emoji)
-    const cps = [...line], out = [];
-    let i = 0, first = true;
-    while (i < cps.length) { const n = first ? 73 : 72; out.push((first ? '' : ' ') + cps.slice(i, i + n).join('')); i += n; first = false; }
-    return out.join('\r\n');
+  const fold = (line) => {                    // RFC 5545: fold at 75 octets (UTF-8); continuation lines are prefixed with one space (1 octet)
+    const lines = [];
+    let cur = '', budget = 75;
+    for (const cp of [...line]) {
+      const n = new TextEncoder().encode(cp).length;
+      if (n > budget) { lines.push(cur); cur = ' '; budget = 75 - 1; }
+      cur += cp; budget -= n;
+    }
+    lines.push(cur);
+    return lines.join('\r\n');
   };
   const nextDayKey = (key) => new Date(keyMs(key) + 86400000).toISOString().slice(0, 10);
   L.icsEventLines = (team, e, origin) => {
@@ -297,6 +332,7 @@
       e.status_note || null,
       e.rescheduled_from ? `Moved from ${L.fmtDay(e.rescheduled_from, tz)} ${L.fmtTime(e.rescheduled_from, tz)}` : null,
       e.notes || null, link].filter(Boolean).join('\n');
+    // DTSTAMP/SEQUENCE/LAST-MODIFIED derive from updated_at so the feed is byte-stable when data hasn't changed (the 15-min cron only commits real changes)
     const stamp = e.updated_at || e.starts_at;
     const lines = ['BEGIN:VEVENT', `UID:evt-${e.id}@wolves.glorbnorb.com`, `DTSTAMP:${icsStamp(stamp)}`,
       `SEQUENCE:${Math.floor(T(stamp) / 1000)}`, `LAST-MODIFIED:${icsStamp(stamp)}`];
@@ -312,6 +348,8 @@
   const icsWrap = (team, body) => ['BEGIN:VCALENDAR', 'VERSION:2.0', `PRODID:-//wolves.glorbnorb.com//${icsEsc(team.name)}//EN`,
     'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', `X-WR-CALNAME:${icsEsc(team.name)}`, 'X-PUBLISHED-TTL:PT1H', 'REFRESH-INTERVAL;VALUE=DURATION:PT1H',
     ...body, 'END:VCALENDAR'].map(fold).join('\r\n') + '\r\n';
+  // The feed is name-free by construction (it never receives roster/rsvp data). notes/status_note are coach-authored
+  // free text published verbatim; the event editor labels them as public.
   L.buildIcs = (team, events, origin, now) => {
     const cutoff = now.getTime() - 60 * 86400000;
     const body = [...events].filter(e => T(e.starts_at) >= cutoff).sort(byStart).flatMap(e => L.icsEventLines(team, e, origin));

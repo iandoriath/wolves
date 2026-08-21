@@ -187,8 +187,10 @@ eq(L.parseCodeParam('softball:ab12cd,soccer:zz99yy'), { single: null, pairs: [{ 
 eq(L.parseCodeParam(''), { single: null, pairs: [] }, 'parseCodeParam empty');
 eq(L.mapsUrl('Memorial Park Field 3', true), 'https://maps.apple.com/?q=Memorial%20Park%20Field%203', 'apple maps');
 eq(L.mapsUrl('Memorial Park Field 3', false), 'https://www.google.com/maps/search/?api=1&query=Memorial%20Park%20Field%203', 'google maps');
-const gcal = L.googleCalUrl({ id: 1, kind: 'game', opponent: 'Tigers', home: true, starts_at: '2026-05-02T14:00:00Z', location: 'Memorial Park', notes: 'Wear white' }, team);
+const gcal = L.googleCalUrl({ id: 1, kind: 'game', opponent: 'Tigers', home: true, starts_at: '2026-05-02T14:00:00Z', location: 'Memorial Park', notes: 'Wear white', status: 'scheduled' }, team, O);
 ok(gcal.startsWith('https://calendar.google.com/calendar/render?action=TEMPLATE&text=') && gcal.includes('dates=20260502T140000Z%2F20260502T153000Z') && gcal.includes('location=Memorial%20Park'), 'googleCalUrl');
+const gcalTbd = L.googleCalUrl({ id: 7, kind: 'other', title: 'Picture day', starts_at: '2026-05-09T16:00:00Z', time_tbd: true, location: 'Pavilion', status: 'scheduled' }, team, O);
+ok(gcalTbd.includes('dates=20260509%2F20260510'), 'googleCalUrl all-day for time_tbd');
 
 // --- composers
 const evX = { id: 5, kind: 'game', opponent: 'Tigers', home: false, starts_at: '2026-05-02T14:00:00Z', location: 'Riverside Field 2', status: 'scheduled', notes: 'Wear white' };
@@ -209,7 +211,13 @@ eq(L.eventLine(team, { ...evX, time_tbd: true, location: '' }), '🥎 SAA 10U Wo
 // --- roster paste
 eq(L.parseRosterPaste('Kate B.\nSam\n  Zoe Brown \n\nMia b'), [
   { first_name: 'Kate', last_initial: 'B' }, { first_name: 'Sam', last_initial: null },
-  { first_name: 'Zoe', last_initial: 'B' }, { first_name: 'Mia', last_initial: 'B' }], 'parseRosterPaste');
+  { first_name: 'Zoe', last_initial: 'B' }, { first_name: 'Mia', last_initial: 'B' }], 'parseRosterPaste basic lines');
+eq(L.parseRosterPaste('12 Kate B.'), [{ first_name: 'Kate', last_initial: 'B' }], 'parseRosterPaste jersey number dropped');
+eq(L.parseRosterPaste('Brown, Kate'), [{ first_name: 'Kate', last_initial: 'B' }], 'parseRosterPaste Last, First');
+eq(L.parseRosterPaste('Kate B., Sam, Zoe'), [
+  { first_name: 'Kate', last_initial: 'B' }, { first_name: 'Sam', last_initial: null }, { first_name: 'Zoe', last_initial: null }], 'parseRosterPaste comma-separated list');
+eq(L.parseRosterPaste('Emile Ångström'), [{ first_name: 'Emile', last_initial: 'Å' }], 'parseRosterPaste accented last initial');
+eq(L.parseRosterPaste('### 7'), [], 'parseRosterPaste numeric-only line dropped');
 eq(L.parseRosterPaste(''), [], 'parseRosterPaste empty');
 
 // --- ICS v2
@@ -220,6 +228,7 @@ const icsEvents = [
   { id: 7, kind: 'other', title: 'Picture day', starts_at: '2026-05-09T16:00:00Z', time_tbd: true, location: 'Pavilion', notes: '', status: 'scheduled', status_note: '', updated_at: '2026-04-01T00:00:00Z' },
   { id: 8, kind: 'game', opponent: 'Bears', home: false, starts_at: '2026-01-10T14:00:00Z', status: 'scheduled', status_note: '', updated_at: '2026-01-01T00:00:00Z' }, // older than 60 days → excluded
   { id: 9, kind: 'game', opponent: 'Lions', home: null, starts_at: '2026-05-16T14:00:00Z', status: 'tentative', status_note: 'Decision by 8:30', rescheduled_from: '2026-05-15T14:00:00Z', updated_at: '2026-04-30T00:00:00Z' },
+  { id: 10, kind: 'other', title: 'Fall Festival', starts_at: '2026-05-20T14:00:00Z', location: '', notes: '🎉🎊🥎🎈🏆🎉🎊🥎🎈🏆 Bring snacks, drinks, and a folding chair for the whole family to enjoy! 🎉🎊🥎🎈🏆', status: 'scheduled', status_note: '', updated_at: '2026-04-25T00:00:00Z' },
 ];
 const ics = L.buildIcs(team, icsEvents, O, icsNow);
 const unfolded = ics.replace(/\r\n /g, '');            // undo RFC 5545 line folding for content checks
@@ -236,8 +245,8 @@ has('DTSTART;VALUE=DATE:20260509'); has('DTEND;VALUE=DATE:20260510'); has('SUMMA
 has('SUMMARY:(weather pending) 🥎 SAA 10U Wolves vs Lions · arrive 9:30 AM'); has('STATUS:TENTATIVE');
 has('DESCRIPTION:Arrive by 9:30 AM\\nDecision by 8:30\\nMoved from Fri\\, May 15 10:00 AM\\nhttps://', 'tentative description (comma escaped)');
 ok(!ics.includes('evt-8'), 'ics excludes events older than 60 days');
-ok(!ics.includes('Kate'), 'ics has no names');
-ok(ics.split('\r\n').every(l => [...l].length <= 75), 'ics lines folded to ≤75 chars');
+has('🎉🎊🥎🎈🏆 Bring snacks\\, drinks\\, and a folding chair for the whole family to enjoy! 🎉🎊🥎🎈🏆', 'emoji-heavy notes survive fold/unfold');
+ok(ics.split('\r\n').every(l => new TextEncoder().encode(l).length <= 75), 'ics lines folded to ≤75 octets');
 // cancelled + all-day events carry no alarms
 const cancelledBlock = unfolded.slice(unfolded.indexOf('UID:evt-6@'), unfolded.indexOf('END:VEVENT', unfolded.indexOf('UID:evt-6@')));
 ok(!cancelledBlock.includes('VALARM'), 'no alarm on cancelled');

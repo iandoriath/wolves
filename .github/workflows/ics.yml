@@ -19,13 +19,14 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-      - name: weekly heartbeat (Mondays 00:xx UTC) so GitHub never disables this schedule
+      - name: weekly heartbeat (once per ISO week) so GitHub never disables this schedule
         run: |
-          if [ "$(date -u +%u)" = "1" ] && [ "$(date -u +%H)" = "00" ]; then date -u +%F > .heartbeat; fi
+          [ "$(cat .heartbeat 2>/dev/null)" = "$(date -u +%G-W%V)" ] || date -u +%G-W%V > .heartbeat
       - run: |
           git config user.name "ics-bot"
           git config user.email "actions@github.com"
-          git add *.ics .heartbeat 2>/dev/null || git add *.ics
+          git add *.ics
+          [ -f .heartbeat ] && git add .heartbeat || true
           git diff --cached --quiet || git commit -m "ics: refresh feeds"
           git pull --rebase
           git push
