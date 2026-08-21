@@ -52,7 +52,7 @@
       <div class="field" data-only="other"><label for="ev-title">Title</label><input id="ev-title" value="${U.esc(e.title || '')}" placeholder="Picture day, Team party…"></div>
       ${C.fieldDateTime('ev-start', 'When', e.starts_at, tz, 'required')}
       <div class="switch"><label for="ev-tbd">Time TBD (shows date only)</label><input type="checkbox" id="ev-tbd" ${e.time_tbd ? 'checked' : ''}></div>
-      <div class="field-row"><div class="field"><label for="ev-dur">Duration (min)</label><input id="ev-dur" type="number" inputmode="numeric" value="${e.duration_min ?? ''}" placeholder="${e.kind === 'game' ? t.game_duration_min : t.practice_duration_min}"></div>
+      <div class="field-row"><div class="field"><label for="ev-dur">Duration (min)</label><input id="ev-dur" type="number" inputmode="numeric" value="${U.esc(e.duration_min ?? '')}" placeholder="${U.esc(e.kind === 'game' ? t.game_duration_min : t.practice_duration_min)}"></div>
       <div class="field"><label for="ev-loc">Location</label><input id="ev-loc" list="loc-list" value="${U.esc(e.location || '')}"><datalist id="loc-list">${locs.map(o => `<option value="${U.esc(o)}">`).join('')}</datalist></div></div>
       <div class="field"><label>Volunteer roles</label>${rolesChips(t.default_volunteer_roles || [], e.volunteer_roles || [])}</div>
       <div class="field"><label for="ev-notes">Notes <span class="muted" style="font-weight:400">(parents see these; they also appear in the public calendar feed)</span></label><textarea id="ev-notes">${U.esc(e.notes || '')}</textarea></div>
@@ -100,7 +100,7 @@
       if (!saved) return; close(); shareAfter('Moved', L.composeReschedule({ team: b.team, event: { ...event, starts_at, location }, oldStart, link: link(slug, event) })); } });
   };
   C.resultSheet = ({ slug, event }) => {
-    const { root, close } = U.sheet({ title: 'Enter result', html: `<div class="field-row"><div class="field"><label for="r-us">Us</label><input id="r-us" type="number" inputmode="numeric" value="${event.score_us ?? ''}"></div><div class="field"><label for="r-them">${U.esc(event.opponent || 'Them')}</label><input id="r-them" type="number" inputmode="numeric" value="${event.score_them ?? ''}"></div></div><div class="sheet-actions"><button class="btn btn-primary" data-act="go">Save</button><button class="btn btn-ghost" data-act="clear">Clear result</button></div>` });
+    const { root, close } = U.sheet({ title: 'Enter result', html: `<div class="field-row"><div class="field"><label for="r-us">Us</label><input id="r-us" type="number" inputmode="numeric" value="${U.esc(event.score_us ?? '')}"></div><div class="field"><label for="r-them">${U.esc(event.opponent || 'Them')}</label><input id="r-them" type="number" inputmode="numeric" value="${U.esc(event.score_them ?? '')}"></div></div><div class="sheet-actions"><button class="btn btn-primary" data-act="go">Save</button><button class="btn btn-ghost" data-act="clear">Clear result</button></div>` });
     wire(root, { go: async () => { const us = val(root, '#r-us'), them = val(root, '#r-them'); if (us === '' || them === '') return U.toast('Enter both scores'); if (await write(slug, () => Api.saveEvent({ id: event.id, score_us: Number(us), score_them: Number(them) }))) close(); },
       clear: async () => { if (await write(slug, () => Api.saveEvent({ id: event.id, score_us: null, score_them: null }))) close(); } });
   };
@@ -182,8 +182,8 @@
       <div class="field"><label>Colour</label>${colorChips(t.color)}</div>
       <div class="field"><label for="ts-tz">Time zone</label><select id="ts-tz">${['America/New_York', 'America/Chicago', 'America/Denver', 'America/Phoenix', 'America/Los_Angeles', 'America/Anchorage', 'Pacific/Honolulu'].map(z => `<option ${z === t.tz ? 'selected' : ''}>${z}</option>`).join('')}</select></div>
       <div class="field"><label for="ts-loc">Default location</label><input id="ts-loc" value="${U.esc(t.default_location || '')}"></div>
-      <div class="field-row"><div class="field"><label for="ts-min">Min players</label><input id="ts-min" type="number" inputmode="numeric" value="${t.min_players}"></div><div class="field"><label for="ts-arr">Arrive early (min)</label><input id="ts-arr" type="number" inputmode="numeric" value="${t.arrive_early_min}"></div></div>
-      <div class="field-row"><div class="field"><label for="ts-gd">Game length (min)</label><input id="ts-gd" type="number" inputmode="numeric" value="${t.game_duration_min}"></div><div class="field"><label for="ts-pd">Practice length (min)</label><input id="ts-pd" type="number" inputmode="numeric" value="${t.practice_duration_min}"></div></div>
+      <div class="field-row"><div class="field"><label for="ts-min">Min players</label><input id="ts-min" type="number" inputmode="numeric" value="${U.esc(t.min_players)}"></div><div class="field"><label for="ts-arr">Arrive early (min)</label><input id="ts-arr" type="number" inputmode="numeric" value="${U.esc(t.arrive_early_min)}"></div></div>
+      <div class="field-row"><div class="field"><label for="ts-gd">Game length (min)</label><input id="ts-gd" type="number" inputmode="numeric" value="${U.esc(t.game_duration_min)}"></div><div class="field"><label for="ts-pd">Practice length (min)</label><input id="ts-pd" type="number" inputmode="numeric" value="${U.esc(t.practice_duration_min)}"></div></div>
       <div class="field"><label>Default volunteer roles (games)</label>${rolesChips(t.default_volunteer_roles || [], t.default_volunteer_roles || [])}</div>
       <div class="sheet-actions"><button class="btn btn-primary" data-act="save">Save</button><button class="btn btn-ghost" data-act="x">Cancel</button></div>` });
     wireRoles(root); wireColors(root);
