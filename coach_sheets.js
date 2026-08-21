@@ -240,13 +240,8 @@
     const readDraft = () => ({ name: val(root, '#ts-name'), emoji: val(root, '#ts-emoji'), color: readColor(root), tz: val(root, '#ts-tz'), default_location: val(root, '#ts-loc'),
       min_players: val(root, '#ts-min'), arrive_early_min: val(root, '#ts-arr'), game_duration_min: val(root, '#ts-gd'), practice_duration_min: val(root, '#ts-pd'), roles: readRoles(root) });
     let inv = '';
-    try {
-      const code = (await Api.teamSecrets()).find(s => s.team_id === t.id)?.code || '';
-      if (!code) throw new Error('no invite code for this team');
-      inv = L.teamLink(ORIGIN, slug, code);
-      const el = root.querySelector('[data-inv]'); el.textContent = inv; el.classList.remove('muted');
-      root.querySelectorAll('[data-act="share-inv"],[data-act="copy-inv"],[data-act="regen"]').forEach(x => { x.disabled = false; });
-    } catch { root.querySelector('[data-inv]').textContent = 'Couldn’t load the invite code — try again'; }
+    // Wire before the fetch: Cancel and Save are enabled from the first frame, so they must not wait
+    // on the invite-code round trip. The three link buttons stay disabled until `inv` is filled in below.
     wire(root, { x: () => close(), 'share-inv': () => U.share({ title: `${t.name} schedule`, text: `${t.emoji} ${t.name} schedule & RSVP — tap to pick your player:`, url: inv }), 'copy-inv': async () => U.toast((await U.copy(inv)) ? 'Copied' : 'Couldn’t copy'),
       regen: async () => { const d = readDraft();
         if (!(await U.confirm({ title: 'Regenerate invite code?', body: 'Every parent will need the new link to RSVP again.', confirmLabel: 'Regenerate', danger: true }))) return C.settingsSheet({ slug, draft: d });
@@ -256,6 +251,13 @@
       save: async () => { const d = readDraft();
         const row = { id: t.id, name: d.name, emoji: d.emoji, color: d.color, tz: d.tz, default_location: d.default_location, min_players: Number(d.min_players || 0), arrive_early_min: Number(d.arrive_early_min || 0), game_duration_min: Number(d.game_duration_min || 90), practice_duration_min: Number(d.practice_duration_min || 60), default_volunteer_roles: d.roles };
         if (await write(slug, () => Api.saveTeam(row))) { close(); U.toast('Saved'); } } });
+    try {
+      const code = (await Api.teamSecrets()).find(s => s.team_id === t.id)?.code || '';
+      if (!code) throw new Error('no invite code for this team');
+      inv = L.teamLink(ORIGIN, slug, code);
+      const el = root.querySelector('[data-inv]'); el.textContent = inv; el.classList.remove('muted');
+      root.querySelectorAll('[data-act="share-inv"],[data-act="copy-inv"],[data-act="regen"]').forEach(x => { x.disabled = false; });
+    } catch { root.querySelector('[data-inv]').textContent = 'Couldn’t load the invite code — try again'; }
   };
 
   // ---------- bulk add ----------
@@ -275,8 +277,10 @@
     const invalidate = () => { saveBtn.disabled = true; saveBtn.textContent = 'Add all'; root.querySelector('[data-preview]').innerHTML = ''; };
     const getKind = wireKind(root, 'practice', (kind) => { if (!rolesTouched) setRoles(root, kind === 'game' ? (t.default_volunteer_roles || []) : []); invalidate(); });
     wireRoles(root, () => { rolesTouched = true; invalidate(); });
+    // Only real value changes invalidate: the fields fire input/change, and the chips and the kind
+    // control invalidate through their own callbacks above — so reading the preview list leaves it alone.
     root.addEventListener('input', invalidate);
-    root.addEventListener('click', (ev) => { if (!ev.target.closest('[data-act]')) invalidate(); });
+    root.addEventListener('change', invalidate);
     const buildRows = () => {                    // single source of truth for both Preview and Add all
       const first = L.fromLocalInput(val(root, '#bk-start'), tz);
       if (!first) { U.toast('Pick the first date and time'); return null; }
