@@ -101,5 +101,104 @@
     return L.fmtMonthDay(iso, tz);
   };
 
+  // ---------- grouping ----------
+  const sundayKey = (iso, tz) => {            // key of the Sunday starting the week containing iso (in tz)
+    const z = L.utcToZoned(iso, tz);
+    return new Date(Date.UTC(z.y, z.m - 1, z.d - z.weekday)).toISOString().slice(0, 10);
+  };
+  const keyLabel = (key) => new Date(key + 'T00:00:00Z').toLocaleString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' });
+  L.groupByWeek = (events, tz, now) => {
+    const thisWeek = sundayKey(now.toISOString(), tz);
+    const nextWeek = new Date(keyMs(thisWeek) + 7 * 86400000).toISOString().slice(0, 10);
+    const groups = new Map();
+    for (const e of [...events].sort(byStart)) {
+      const k = sundayKey(e.starts_at, tz);
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(e);
+    }
+    return [...groups.keys()].sort().map(k => ({ key: k, events: groups.get(k),
+      label: k === thisWeek ? 'This week' : k === nextWeek ? 'Next week' : k < thisWeek ? 'Earlier' : `Week of ${keyLabel(k)}` }));
+  };
+  L.monthGrid = (year, month, events, tz, now) => {
+    const first = new Date(Date.UTC(year, month - 1, 1));
+    const todayKey = L.dateKey(now.toISOString(), tz);
+    const byKey = new Map();
+    for (const e of events) { const k = L.dateKey(e.starts_at, tz); if (!byKey.has(k)) byKey.set(k, []); byKey.get(k).push(e); }
+    const weeks = [];
+    let day = 1 - first.getUTCDay();
+    for (let w = 0; w < 6; w++) {
+      const row = [];
+      for (let i = 0; i < 7; i++, day++) {
+        const dt = new Date(Date.UTC(year, month - 1, day));
+        const key = dt.toISOString().slice(0, 10);
+        row.push({ key, d: dt.getUTCDate(), inMonth: dt.getUTCMonth() === month - 1, isToday: key === todayKey,
+          events: (byKey.get(key) || []).sort(byStart) });
+      }
+      weeks.push(row);
+    }
+    return { label: first.toLocaleString('en-US', { timeZone: 'UTC', month: 'long', year: 'numeric' }), weeks };
+  };
+
+  // ---------- needs answer ----------
+  L.needsAnswer = (bundles, household, now) => {
+    const rsvpItems = [], pollItems = [];
+    for (const b of bundles) {
+      const kids = b.players.filter(p => p.active && household.includes(p.id));
+      if (!kids.length) continue;
+      const { upcoming } = L.splitSchedule(b.events, b.team, now);
+      for (const e of upcoming) {
+        if (e.status === 'cancelled') continue;
+        for (const p of kids) if (!b.rsvps.some(r => r.event_id === e.id && r.player_id === p.id))
+          rsvpItems.push({ kind: 'rsvp', team: b.team, event: e, player: p });
+      }
+      for (const poll of b.polls.filter(p => p.status === 'open')) {
+        const slotIds = b.slots.filter(s => s.poll_id === poll.id).map(s => s.id);
+        for (const p of kids) if (!b.votes.some(v => slotIds.includes(v.slot_id) && v.player_id === p.id))
+          pollItems.push({ kind: 'poll', team: b.team, poll, player: p });
+      }
+    }
+    rsvpItems.sort((a, b) => byStart(a.event, b.event));
+    return [...rsvpItems, ...pollItems];
+  };
+
+  // ---------- overlaps ----------
+  L.overlaps = (a, teamA, b, teamB) => a.id !== b.id
+    && T(a.starts_at) < T(L.eventEnd(b, teamB)) && T(b.starts_at) < T(L.eventEnd(a, teamA));
+  L.findOverlaps = (items) => {
+    const m = new Map();
+    const live = items.filter(x => x.event.status !== 'cancelled');
+    for (const x of live) for (const y of live) {
+      if (L.overlaps(x.event, x.team, y.event, y.team)) { if (!m.has(x.event.id)) m.set(x.event.id, []); m.get(x.event.id).push(y); }
+    }
+    return m;
+  };
+
+  // ---------- changes since last visit ----------
+  L.changedSince = (b, lastSeenIso, now) => {
+    if (!lastSeenIso) return { events: [], posts: [] };
+    const since = T(lastSeenIso);
+    const { upcoming } = L.splitSchedule(b.events, b.team, now);
+    return {
+      events: upcoming.filter(e => T(e.updated_at) > since).map(e => ({ event: e, isNew: T(e.created_at) > since })),
+      posts: (b.posts || []).filter(p => T(p.created_at) > since),
+    };
+  };
+  L.volunteerConflicts = (event, claims, rsvps) => claims.filter(c => c.event_id === event.id
+    && rsvps.some(r => r.event_id === event.id && r.player_id === c.player_id && r.status === 'out'));
+
+  // ---------- results ----------
+  L.resultLabel = (e) => {
+    if (e.kind !== 'game' || e.score_us == null || e.score_them == null) return null;
+    const r = e.score_us > e.score_them ? 'W' : e.score_us < e.score_them ? 'L' : 'T';
+    return `${r} ${e.score_us}–${e.score_them}`;
+  };
+  L.record = (events) => events.reduce((acc, e) => { const l = L.resultLabel(e); if (l) acc[l[0].toLowerCase()]++; return acc; }, { w: 0, l: 0, t: 0 });
+
+  // ---------- pending write queue ----------
+  L.opKey = (op) => op.kind === 'rsvp' ? `rsvp:${op.event_id}:${op.player_id}`
+    : op.kind === 'vote' ? `vote:${op.slot_id}:${op.player_id}`
+    : `claim:${op.event_id}:${op.role}`;           // claim + unclaim share a key
+  L.coalescePending = (queue, op) => [...queue.filter(o => L.opKey(o) !== L.opKey(op)), op];
+
   globalThis.ScheduleLib = L;
 })();
