@@ -62,7 +62,7 @@ const delay = (v) => new Promise(r => setTimeout(() => r(v), 120));
 const clone = (v) => JSON.parse(JSON.stringify(v));
 const isCoach = () => globalThis.MOCK_MODE === 'coach';
 const bundle = (t) => ({ team: clone(t),
-  players: clone(players.filter(p => p.team_id === t.id)).sort((a, b) => a.first_name.localeCompare(b.first_name)),
+  players: clone(players.filter(p => p.team_id === t.id)).sort((a, b) => a.first_name.localeCompare(b.first_name) || (a.last_initial || '').localeCompare(b.last_initial || '')),
   contacts: isCoach() ? clone(contacts.filter(c => players.some(p => p.id === c.player_id && p.team_id === t.id))) : [],
   events: clone(events.filter(e => e.team_id === t.id)),
   rsvps: clone(rsvps.filter(r => events.some(e => e.id === r.event_id && e.team_id === t.id))),
@@ -73,29 +73,39 @@ const bundle = (t) => ({ team: clone(t),
   posts: clone(posts.filter(p => p.team_id === t.id)).sort((a, b) => b.created_at.localeCompare(a.created_at)),
   fetchedAt: new Date().toISOString() });
 const upsertBy = (arr, keyFn, row) => { const i = arr.findIndex(x => keyFn(x) === keyFn(row)); if (i >= 0) arr[i] = { ...arr[i], ...row }; else arr.push(row); return clone(row); };
-const removeBy = (arr, pred) => { for (let i = arr.length - 1; i >= 0; i--) if (pred(arr[i])) arr.splice(i, 1); };
+const removeBy = (arr, pred) => { for (let i = arr.length - 1; i >= 0; i--) if (pred(arr[i])) arr.splice(i, 1); return null; };
+const saveMock = (arr, row, defaultsFn) => {
+  if (row.id) {
+    const item = arr.find(x => x.id === row.id);
+    Object.assign(item, row, ('updated_at' in item) ? { updated_at: nowIso } : {});
+    return clone(item);
+  }
+  const item = defaultsFn(row);
+  arr.push(item);
+  return clone(item);
+};
 
 globalThis.Api = {
   init() {},
   listTeams: () => delay(clone(teams.map(({ id, slug, name, emoji, color }) => ({ id, slug, name, emoji, color })))),
   loadTeam: (slug) => { const t = teams.find(x => x.slug === slug); if (!t) return Promise.reject(new Error('no team ' + slug)); return delay(bundle(t)); },
-  upsertRsvp: ({ event_id, player_id, status, note = '' }) => delay(upsertBy(rsvps, r => `${r.event_id}:${r.player_id}`, { event_id, player_id, status, note, updated_at: nowIso })),
+  upsertRsvp: ({ event_id, player_id, status, note = '' }) => delay([upsertBy(rsvps, r => `${r.event_id}:${r.player_id}`, { event_id, player_id, status, note, updated_at: nowIso })]),
   deleteRsvp: (event_id, player_id) => delay(removeBy(rsvps, r => r.event_id === event_id && r.player_id === player_id)),
-  upsertVote: (slot_id, player_id, choice) => delay(upsertBy(votes, v => `${v.slot_id}:${v.player_id}`, { slot_id, player_id, choice })),
+  upsertVote: (slot_id, player_id, choice) => delay([upsertBy(votes, v => `${v.slot_id}:${v.player_id}`, { slot_id, player_id, choice })]),
   deleteVote: (slot_id, player_id) => delay(removeBy(votes, v => v.slot_id === slot_id && v.player_id === player_id)),
-  claimRole: (event_id, role, player_id) => delay(upsertBy(claims, c => `${c.event_id}:${c.role}`, { event_id, role, player_id })),
+  claimRole: (event_id, role, player_id) => delay([upsertBy(claims, c => `${c.event_id}:${c.role}`, { event_id, role, player_id })]),
   unclaimRole: (event_id, role) => delay(removeBy(claims, c => c.event_id === event_id && c.role === role)),
   signIn: (email, password) => { globalThis.MOCK_MODE = password === 'coach' ? 'coach' : globalThis.MOCK_MODE; return delay(password === 'coach' ? { data: {}, error: null } : { data: {}, error: { message: 'bad' } }); },
   signOut: () => { globalThis.MOCK_MODE = '1'; return delay(); },
   session: () => delay(isCoach() ? { user: { email: 'coach@example.com' } } : null),
-  saveEvent: (row) => { if (row.id) { const e = events.find(x => x.id === row.id); Object.assign(e, row, { updated_at: nowIso }); return delay(clone(e)); } const e = mk({ ...row, created_at: nowIso, updated_at: nowIso }); events.push(e); return delay(clone(e)); },
+  saveEvent: (row) => delay(saveMock(events, row, (r) => mk({ ...r, created_at: nowIso, updated_at: nowIso }))),
   insertEvents: (rows) => delay(rows.map(r => { const e = mk({ ...r, created_at: nowIso, updated_at: nowIso }); events.push(e); return clone(e); })),
   deleteEvent: (id) => delay(removeBy(events, e => e.id === id)),
   clearEventRsvps: (event_id) => delay(removeBy(rsvps, r => r.event_id === event_id)),
-  savePlayer: (row) => { if (row.id) { const p = players.find(x => x.id === row.id); Object.assign(p, row); return delay(clone(p)); } const p = { id: nextId++, last_initial: null, active: true, ...row }; players.push(p); return delay(clone(p)); },
+  savePlayer: (row) => delay(saveMock(players, row, (r) => ({ id: nextId++, last_initial: null, active: true, ...r }))),
   saveContact: (row) => delay([upsertBy(contacts, c => c.player_id, { parent_name: '', phone: '', email: '', notes: '', ...row })]),
-  saveTeam: (row) => { const t = teams.find(x => x.id === row.id); Object.assign(t, row); return delay(clone(t)); },
-  savePost: (row) => { if (row.id) { const p = posts.find(x => x.id === row.id); Object.assign(p, row); return delay(clone(p)); } const p = { id: nextId++, pinned: false, created_at: nowIso, ...row }; posts.push(p); return delay(clone(p)); },
+  saveTeam: (row) => delay(saveMock(teams, row, (r) => ({ id: nextId++, ...r }))),
+  savePost: (row) => delay(saveMock(posts, row, (r) => ({ id: nextId++, pinned: false, created_at: nowIso, ...r }))),
   deletePost: (id) => delay(removeBy(posts, p => p.id === id)),
   savePoll: (poll, slotStarts) => { const p = poll.id ? Object.assign(polls.find(x => x.id === poll.id), poll) : (polls.push({ id: nextId++, status: 'open', ...poll }), polls[polls.length - 1]); slotStarts.forEach(starts_at => slots.push({ id: nextId++, poll_id: p.id, starts_at })); return delay(clone(p)); },
   closePoll: (id) => { const p = polls.find(x => x.id === id); p.status = 'closed'; return delay(clone(p)); },
