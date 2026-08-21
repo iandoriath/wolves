@@ -237,13 +237,17 @@
   };
 
   U.eventDetail = (ctx) => {
-    const { b, e, team, slug, isCoach } = ctx;
+    const { b, e, team, slug, isCoach, readOnly } = ctx;
     const s = L.summarizeRsvps(b.players, b.rsvps.filter(r => r.event_id === e.id), team.min_players);
     const actions = `<div class="cluster" style="margin-top:14px">
       <button class="btn btn-sm" ${U.dataAttrs({ action: 'add-cal-event', slug, event: e.id })}>${U.icon('calendar')} Add to calendar</button>
       <button class="btn btn-sm" ${U.dataAttrs({ action: 'share-event', slug, event: e.id })}>${U.icon('share')} Share</button>
       ${isCoach ? `<button class="btn btn-sm btn-primary" ${U.dataAttrs({ action: 'coach-menu', slug, event: e.id })}>${U.icon('edit')} Manage</button>` : ''}</div>`;
-    return `${metaLines(ctx)}<div style="margin-top:12px">${U.rsvpBlock(ctx)}</div>${e.status !== 'cancelled' ? U.headcountLine(s, team.min_players) : ''}${U.whoIsGoing(ctx, s)}${U.volunteerRoles(ctx)}${actions}`;
+    // Without the invite code RLS returns no roster and no RSVP rows (§4.2), so every
+    // tally here would be a zero the viewer has no way to read as "hidden" — it says
+    // "nobody is going". Drop the line entirely; rsvpBlock's notice already explains.
+    const headcount = !readOnly && e.status !== 'cancelled' ? U.headcountLine(s, team.min_players) : '';
+    return `${metaLines(ctx)}<div style="margin-top:12px">${U.rsvpBlock(ctx)}</div>${headcount}${U.whoIsGoing(ctx, s)}${U.volunteerRoles(ctx)}${actions}`;
   };
 
   const myStatusPills = (ctx) => ctx.kids.map(k => {
@@ -306,7 +310,9 @@
     const slots = b.slots.filter(s => s.poll_id === poll.id);
     const votesFor = (slotId, choice) => b.votes.filter(v => v.slot_id === slotId && v.choice === choice);
     const rows = slots.map(s => {
-      const tally = CHOICES.map(c => `${c.glyph} ${votesFor(s.id, c.key).length}`).join(' · ');
+      // Same reason as eventDetail's headcount: a read-only viewer gets no vote rows,
+      // so "✅ 0 · 🤷 0 · ❌ 0" would be a fabricated result rather than a hidden one.
+      const tally = readOnly ? '' : `<span class="tiny muted">${CHOICES.map(c => `${c.glyph} ${votesFor(s.id, c.key).length}`).join(' · ')}</span>`;
       const controls = readOnly ? '' : kids.map(k => {
         const mine = b.votes.find(v => v.slot_id === s.id && v.player_id === k.id)?.choice;
         const btn = (c) => `<button type="button" class="${mine === c.key ? 'on-' + c.tone : ''}" ${U.dataAttrs({ action: 'vote', slug, slot: s.id, player: k.id, choice: c.key })} aria-pressed="${mine === c.key}" aria-label="${c.label} for ${kidName(k)}">${c.glyph} ${c.label}</button>`;
@@ -316,7 +322,7 @@
         const ps = votesFor(s.id, c.key).map(v => b.players.find(p => p.id === v.player_id)).filter(Boolean);
         return ps.length ? `${c.glyph} ${ps.map(kidName).join(', ')}` : '';
       }).filter(Boolean).join(' · ')}</div>` : '';
-      return `<div style="padding:12px 0;border-top:1px solid var(--line)"><div class="cluster" style="justify-content:space-between"><b>${U.esc(L.fmtWhen(s.starts_at, tz))}</b><span class="tiny muted">${tally}</span></div>${names}<div style="margin-top:8px">${controls}</div>
+      return `<div style="padding:12px 0;border-top:1px solid var(--line)"><div class="cluster" style="justify-content:space-between"><b>${U.esc(L.fmtWhen(s.starts_at, tz))}</b>${tally}</div>${names}<div style="margin-top:8px">${controls}</div>
         ${isCoach ? `<button class="btn btn-sm" style="margin-top:8px" ${U.dataAttrs({ action: 'coach-poll-convert', slug, poll: poll.id, slot: s.id })}>Make this the practice</button>` : ''}</div>`;
     }).join('');
     return `<div class="card card-pad" id="poll-${poll.id}"><div class="cluster" style="justify-content:space-between"><h3>${U.icon('users')} ${U.esc(poll.title)}</h3>${isCoach ? `<button class="btn btn-sm btn-ghost" ${U.dataAttrs({ action: 'coach-poll-close', slug, poll: poll.id })}>Close poll</button>` : ''}</div>
