@@ -274,5 +274,9 @@ eq(L.recentTimes([], TZ, 3), [], 'recentTimes: empty');
 eq(L.recentTimes([{ starts_at: '2026-05-17T18:00:00Z', status: 'cancelled' }, { starts_at: '2026-05-18T18:00:00Z', time_tbd: true }], TZ, 3), [], 'recentTimes: nothing countable');
 eq(L.recentTimes(rtEvents, 'America/Los_Angeles', 1), ['14:30'], 'recentTimes: wall time follows tz');
 
+// --- fmtKey: a calendar date key ('YYYY-MM-DD') labels as its own day, whatever zone the process runs in
+eq(L.fmtKey('2026-08-22'), 'Sat, Aug 22', 'fmtKey: date key → "Sat, Aug 22"');
+eq(L.fmtKey('2026-01-01'), 'Thu, Jan 1', 'fmtKey: a year-boundary key stays on its own day');
+
 console.log(fails ? `${fails}/${count} FAILURES` : `ALL PASS (${count})`);
 process.exit(fails ? 1 : 0);

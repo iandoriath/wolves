@@ -93,6 +93,9 @@
   const fmt = (iso, tz, opts) => new Date(iso).toLocaleString('en-US', { timeZone: tz, ...opts });
   L.fmtTime = (iso, tz) => fmt(iso, tz, { hour: 'numeric', minute: '2-digit' });
   L.fmtDay = (iso, tz) => fmt(iso, tz, { weekday: 'short', month: 'short', day: 'numeric' });
+  // A date key ('YYYY-MM-DD') is a plain calendar day, so it is read back at noon UTC in UTC — no
+  // zone can shift the day — and labelled like fmtDay: '2026-08-22' → "Sat, Aug 22".
+  L.fmtKey = (key) => L.fmtDay(key + 'T12:00:00Z', 'UTC');
   L.fmtDayYear = (iso, tz) => fmt(iso, tz, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
   L.fmtMonthDay = (iso, tz) => fmt(iso, tz, { month: 'short', day: 'numeric' });
   L.fmtWhen = (iso, tz, e) => `${L.fmtDay(iso, tz)} · ${e?.time_tbd ? 'Time TBD' : L.fmtTime(iso, tz)}`;
