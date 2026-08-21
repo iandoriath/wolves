@@ -146,6 +146,8 @@
   // en-US puts U+202F (narrow no-break space) before AM/PM, so split on any
   // whitespace — and escape *before* inserting markup, never after.
   const timeHtml = (iso, tz, sep) => U.esc(L.fmtTime(iso, tz)).replace(/\s/, sep);
+  // Shown wherever an answer is asked for but no player has been picked yet.
+  const pickKids = (text, cls = 'btn btn-block') => `<button class="${cls}" data-action="pick-kids">${text}</button>`;
 
   U.statusPill = (status) => status === 'going' ? '<span class="pill pill-going">Going</span>'
     : status === 'maybe' ? '<span class="pill pill-maybe">Maybe</span>'
@@ -171,7 +173,7 @@
   U.rsvpBlock = (ctx) => {
     const { b, e, kids, slug, readOnly, team } = ctx;
     if (readOnly) return `<div class="notice notice-info">${U.icon('info')}<div>Tap your invite link to RSVP and see who’s going.</div></div>`;
-    if (!kids.length) return ctx.isCoach ? '' : `<button class="btn btn-block" data-action="pick-kids">Pick your player to RSVP</button>`;
+    if (!kids.length) return ctx.isCoach ? '' : pickKids('Pick your player to RSVP');
     if (e.status === 'cancelled') return '';
     return kids.map(kid => {
       const r = b.rsvps.find(x => x.event_id === e.id && x.player_id === kid.id);
@@ -204,17 +206,21 @@
     const { b, e, kids, slug, readOnly } = ctx;
     const roles = e.volunteer_roles || [];
     if (!roles.length || readOnly || e.status === 'cancelled') return '';
+    let open = 0;
     const rows = roles.map(role => {
       const claim = b.claims.find(c => c.event_id === e.id && c.role === role);
       if (claim) {
         const p = b.players.find(x => x.id === claim.player_id);
         const mine = kids.find(k => k.id === claim.player_id);
-        return `<div class="cluster" style="justify-content:space-between"><span><b>${U.esc(role)}</b>: ${p ? kidName(p) : 'someone'}</span>${mine ? `<button class="btn btn-sm" ${U.dataAttrs({ action: 'unclaim', slug, event: e.id, role })}>Unclaim</button>` : ''}</div>`;
+        return `<div class="cluster" style="justify-content:space-between"><span><b>${U.esc(role)}</b>: ${p ? kidName(p) : 'someone'}</span>${mine ? `<button class="btn btn-sm" ${U.dataAttrs({ action: 'unclaim', slug, event: e.id, role, player: claim.player_id })}>Unclaim</button>` : ''}</div>`;
       }
+      open++;
       const claimBtns = kids.map(k => `<button class="btn btn-sm btn-primary" ${U.dataAttrs({ action: 'claim', slug, event: e.id, role, player: k.id })}>Claim${kids.length > 1 ? ' for ' + kidName(k) : ''}</button>`).join('');
       return `<div class="cluster" style="justify-content:space-between"><span><b>${U.esc(role)}</b>: <span class="muted">open</span></span><span class="cluster">${claimBtns}</span></div>`;
     }).join('');
-    return `<div class="kicker" style="margin-top:14px">Volunteers</div><div class="stack" style="margin-top:6px">${rows}</div>`;
+    // An open role you can't claim yet is a dead end without this.
+    const pick = open && !kids.length ? `<div style="margin-top:8px">${pickKids('Pick your player to claim', 'btn btn-sm')}</div>` : '';
+    return `<div class="kicker" style="margin-top:14px">Volunteers</div><div class="stack" style="margin-top:6px">${rows}</div>${pick}`;
   };
 
   const metaLines = (ctx) => {
@@ -227,7 +233,7 @@
     if (e.location) lines.push(`<div>${U.icon('pin')} <a href="${U.esc(L.mapsUrl(e.location, U.isIOS))}" target="_blank" rel="noopener">${U.esc(e.location)}</a></div>`);
     if (e.notes) lines.push(`<div class="muted">${U.esc(e.notes)}</div>`);
     if (ctx.overlapWith?.length) lines.push(`<div class="tiny" style="color:var(--maybe)">${U.icon('alert')} Overlaps ${ctx.overlapWith.map(o => `${U.esc(o.team.emoji)} ${U.esc(L.eventTitle(o.event))}`).join(', ')}</div>`);
-    return `<div class="meta">${lines.join('')}</div>`;
+    return lines.length ? `<div class="meta">${lines.join('')}</div>` : '';
   };
 
   U.eventDetail = (ctx) => {
@@ -242,7 +248,7 @@
 
   const myStatusPills = (ctx) => ctx.kids.map(k => {
     const r = ctx.b.rsvps.find(x => x.event_id === ctx.e.id && x.player_id === k.id);
-    return `<span title="${kidName(k)}">${ctx.kids.length > 1 ? `<span class="tiny muted">${U.esc(k.first_name)} </span>` : ''}${U.statusPill(r?.status)}</span>`;
+    return `<span title="${kidName(k)}">${ctx.kids.length > 1 ? `<span class="tiny muted">${kidName(k)} </span>` : ''}${U.statusPill(r?.status)}</span>`;
   }).join('');
 
   U.eventRow = (ctx) => {
@@ -257,7 +263,7 @@
     const right = pills || U.badges(ctx);
     const flagged = e.status !== 'scheduled' || e.rescheduled_from || e.time_tbd;
     return `<div class="row-wrap" id="event-${e.id}">
-      <button type="button" class="row ${e.status === 'cancelled' ? 'cancelled' : ''}" ${U.dataAttrs({ action: 'toggle-event', slug, event: e.id })} aria-expanded="${expanded}">
+      <button type="button" class="row ${e.status === 'cancelled' ? 'cancelled' : ''}" ${U.dataAttrs({ action: 'toggle-event', slug, event: e.id })} aria-expanded="${!!expanded}">
         <div class="row-when"><div class="row-day">${U.esc(dayLabel)} ${dateNum}</div><div class="row-time">${e.time_tbd ? 'TBD' : timeHtml(e.starts_at, tz, '<br>')}</div></div>
         <div class="row-body"><div class="row-title">${ctx.showTeam ? U.esc(team.emoji) + ' ' : ''}${U.esc(L.eventTitle(e))}</div>
           <div class="row-sub">${U.esc(e.location || team.default_location || '')}</div>
@@ -285,38 +291,51 @@
       <div style="flex-basis:100%;margin-top:6px">${U.rsvpControl({ slug: item.team.slug, e, kid: item.player, status: null })}</div></div>`;
   };
 
+  // One table drives the vote buttons, the coach's per-choice names and the tally,
+  // so a choice can never be labelled one way and counted another. `tone` reuses the
+  // RSVP fill classes.
+  const CHOICES = [{ key: 'yes', label: 'Yes', glyph: '✅', tone: 'going' },
+    { key: 'ifneeded', label: 'If needed', glyph: '🤷', tone: 'maybe' },
+    { key: 'no', label: 'No', glyph: '❌', tone: 'out' }];
+
   U.pollCard = (ctx, poll) => {
     const { b, team, kids, slug, readOnly, isCoach } = ctx; const tz = tzOf(team);
     const slots = b.slots.filter(s => s.poll_id === poll.id);
-    const tally = (slotId) => { const v = b.votes.filter(x => x.slot_id === slotId); return { yes: v.filter(x => x.choice === 'yes').length, ifneeded: v.filter(x => x.choice === 'ifneeded').length, no: v.filter(x => x.choice === 'no').length }; };
+    const votesFor = (slotId, choice) => b.votes.filter(v => v.slot_id === slotId && v.choice === choice);
     const rows = slots.map(s => {
-      const t = tally(s.id);
+      const tally = CHOICES.map(c => `${c.glyph} ${votesFor(s.id, c.key).length}`).join(' · ');
       const controls = readOnly ? '' : kids.map(k => {
         const mine = b.votes.find(v => v.slot_id === s.id && v.player_id === k.id)?.choice;
-        const btn = (choice, label, glyph) => `<button type="button" class="${mine === choice ? 'on-' + (choice === 'yes' ? 'going' : choice === 'no' ? 'out' : 'maybe') : ''}" ${U.dataAttrs({ action: 'vote', slug, slot: s.id, player: k.id, choice })} aria-pressed="${mine === choice}" aria-label="${label} for ${kidName(k)}">${glyph} ${label}</button>`;
-        return `${kids.length > 1 ? `<div class="rsvp-kid">${kidName(k)}</div>` : ''}<div class="rsvp">${btn('yes', 'Yes', '✅')}${btn('ifneeded', 'If needed', '🤷')}${btn('no', 'No', '❌')}</div>`;
+        const btn = (c) => `<button type="button" class="${mine === c.key ? 'on-' + c.tone : ''}" ${U.dataAttrs({ action: 'vote', slug, slot: s.id, player: k.id, choice: c.key })} aria-pressed="${mine === c.key}" aria-label="${c.label} for ${kidName(k)}">${c.glyph} ${c.label}</button>`;
+        return `${kids.length > 1 ? `<div class="rsvp-kid">${kidName(k)}</div>` : ''}<div class="rsvp">${CHOICES.map(btn).join('')}</div>`;
       }).join('');
-      const names = isCoach ? `<div class="tiny muted" style="margin-top:4px">${['yes', 'ifneeded', 'no'].map(c => { const ps = b.votes.filter(v => v.slot_id === s.id && v.choice === c).map(v => b.players.find(p => p.id === v.player_id)).filter(Boolean); return ps.length ? `${c === 'yes' ? '✅' : c === 'no' ? '❌' : '🤷'} ${ps.map(kidName).join(', ')}` : ''; }).filter(Boolean).join(' · ')}</div>` : '';
-      return `<div style="padding:12px 0;border-top:1px solid var(--line)"><div class="cluster" style="justify-content:space-between"><b>${U.esc(L.fmtWhen(s.starts_at, tz))}</b><span class="tiny muted">✅ ${t.yes} · 🤷 ${t.ifneeded} · ❌ ${t.no}</span></div>${names}<div style="margin-top:8px">${controls}</div>
+      const names = isCoach ? `<div class="tiny muted" style="margin-top:4px">${CHOICES.map(c => {
+        const ps = votesFor(s.id, c.key).map(v => b.players.find(p => p.id === v.player_id)).filter(Boolean);
+        return ps.length ? `${c.glyph} ${ps.map(kidName).join(', ')}` : '';
+      }).filter(Boolean).join(' · ')}</div>` : '';
+      return `<div style="padding:12px 0;border-top:1px solid var(--line)"><div class="cluster" style="justify-content:space-between"><b>${U.esc(L.fmtWhen(s.starts_at, tz))}</b><span class="tiny muted">${tally}</span></div>${names}<div style="margin-top:8px">${controls}</div>
         ${isCoach ? `<button class="btn btn-sm" style="margin-top:8px" ${U.dataAttrs({ action: 'coach-poll-convert', slug, poll: poll.id, slot: s.id })}>Make this the practice</button>` : ''}</div>`;
     }).join('');
     return `<div class="card card-pad" id="poll-${poll.id}"><div class="cluster" style="justify-content:space-between"><h3>${U.icon('users')} ${U.esc(poll.title)}</h3>${isCoach ? `<button class="btn btn-sm btn-ghost" ${U.dataAttrs({ action: 'coach-poll-close', slug, poll: poll.id })}>Close poll</button>` : ''}</div>
-      ${!kids.length && !readOnly ? '<p class="tiny muted">Pick your player to vote.</p>' : ''}${readOnly ? '<p class="tiny muted">Tap your invite link to vote.</p>' : ''}${rows}</div>`;
+      ${!kids.length && !readOnly && !isCoach ? `<div style="margin-top:8px">${pickKids('Pick your player to vote')}</div>` : ''}${readOnly ? '<p class="tiny muted">Tap your invite link to vote.</p>' : ''}${rows}</div>`;
   };
 
-  U.postItem = (post, team, { isNew, isCoach, slug } = {}) => `<div class="post ${post.pinned ? 'pinned' : ''}">
+  U.postItem = (post, team, { isNew, isCoach, slug, now } = {}) => `<div class="post ${post.pinned ? 'pinned' : ''}">
     <div style="white-space:pre-wrap">${post.pinned ? U.icon('star') + ' ' : ''}${U.esc(post.body)}</div>
-    <div class="post-meta">${isNew ? '<span class="badge badge-new">New</span> ' : ''}${U.esc(L.relativeTime(post.created_at, new Date(), tzOf(team)))}${isCoach ? ` · <button class="btn btn-ghost btn-sm" style="min-height:26px;padding:0 6px" ${U.dataAttrs({ action: 'coach-post-edit', slug, post: post.id })}>Edit</button>` : ''}</div></div>`;
+    <div class="post-meta">${isNew ? '<span class="badge badge-new">New</span> ' : ''}${U.esc(L.relativeTime(post.created_at, now || new Date(), tzOf(team)))}${isCoach ? ` · <button class="btn btn-ghost btn-sm" style="min-height:26px;padding:0 6px" ${U.dataAttrs({ action: 'coach-post-edit', slug, post: post.id })}>Edit</button>` : ''}</div></div>`;
 
   // A month cell is ~37px of usable width, so the dot time is squeezed hard:
   // "10:00 AM" → "10a", "5:30 PM" → "5:30p". Longer than that and the cell ellipsises it.
   const dotTime = (iso, tz) => L.fmtTime(iso, tz).replace(':00', '').replace(/\s/, '').toLowerCase().replace(/m$/, '');
+  // A cell key is a plain calendar date, so read it back at noon UTC in UTC —
+  // no zone shifts the day, and the label says "Sat, Aug 22" instead of "2026-08-22".
+  const cellLabel = (key) => L.fmtDay(key + 'T12:00:00Z', 'UTC');
   // The caller stamps each event with `_tz` (its team's tz) before merging teams so a
   // dot can format its own time; `colorFor(event)` maps an event to its team colour.
   U.monthGrid = (grid, { selectedKey, colorFor, teamColorFor } = {}) => {
     const color = colorFor || teamColorFor || (() => 'var(--team)');
     const dows = ['S', 'M', 'T', 'W', 'T', 'F', 'S'].map(d => `<div class="dow">${d}</div>`).join('');
-    const cells = grid.weeks.flat().map(c => `<button type="button" class="month-cell ${c.inMonth ? '' : 'out'} ${c.isToday ? 'today' : ''} ${c.key === selectedKey ? 'sel' : ''}" ${U.dataAttrs({ action: 'month-day', key: c.key })} aria-label="${U.esc(c.key)}">
+    const cells = grid.weeks.flat().map(c => `<button type="button" class="month-cell ${c.inMonth ? '' : 'out'} ${c.isToday ? 'today' : ''} ${c.key === selectedKey ? 'sel' : ''}" ${U.dataAttrs({ action: 'month-day', key: c.key })} aria-label="${U.esc(cellLabel(c.key))}${c.events.length ? `, ${c.events.length} event${c.events.length > 1 ? 's' : ''}` : ''}"${c.isToday ? ' aria-current="date"' : ''}${c.key === selectedKey ? ' aria-pressed="true"' : ''}>
       <div class="d">${c.d}</div>${c.events.slice(0, 2).map(e => `<div class="month-dot ${e.status === 'cancelled' ? 'cancelled' : ''}" style="background:${U.esc(color(e))}">${e.kind === 'game' ? 'G' : e.kind === 'practice' ? 'P' : '•'}${e.time_tbd ? '' : ' ' + U.esc(dotTime(e.starts_at, e._tz || 'America/New_York'))}</div>`).join('')}${c.events.length > 2 ? `<div class="tiny muted" style="text-align:center">+${c.events.length - 2}</div>` : ''}</button>`).join('');
     return `<div class="month"><div class="month-head"><button class="btn btn-ghost btn-sm" data-action="month-nav" data-dir="-1" aria-label="Previous month">${U.icon('arrow-left')}</button><span>${U.esc(grid.label)}</span><button class="btn btn-ghost btn-sm" data-action="month-nav" data-dir="1" aria-label="Next month">${U.icon('arrow-right')}</button></div><div class="month-grid">${dows}${cells}</div></div>`;
   };

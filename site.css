@@ -201,9 +201,11 @@ main { max-width:600px; margin:0 auto; padding:12px 14px; }
 .hero-day { font-size:15px; font-weight:700; color:var(--ink-2); }
 .hero-time { font-size:36px; font-weight:800; letter-spacing:-.035em; line-height:1; font-variant-numeric:tabular-nums; }
 .hero-title { font-size:22px; font-weight:800; letter-spacing:-.015em; margin-top:4px; text-wrap:balance; }
-.hero .meta { display:grid; gap:6px; margin-top:10px; font-size:15px; }
-.hero .meta a { text-decoration:none; font-weight:600; }
-.hero .meta > * { display:flex; align-items:center; gap:8px; }
+/* The event meta block is shared by the hero and the expanded row, so it is
+   styled unscoped — a detail row has to read the same as the card above it. */
+.meta { display:grid; gap:6px; margin-top:10px; font-size:15px; }
+.meta a { text-decoration:none; font-weight:600; }
+.meta > * { display:flex; align-items:center; gap:8px; }
 .hero.cancelled::before { background:var(--out); }
 .hero.cancelled .hero-time, .hero.cancelled .hero-title { text-decoration:line-through; color:var(--ink-3); }
 
@@ -266,6 +268,7 @@ main { max-width:600px; margin:0 auto; padding:12px 14px; }
 
 .post { padding:14px 16px; }
 .post + .post { border-top:1px solid var(--line); }
+.post.pinned { border-left:3px solid var(--team); background:var(--team-soft); padding-left:13px; }
 .post-meta { font-size:13px; color:var(--ink-3); margin-top:4px; }
 
 .empty { text-align:center; color:var(--ink-2); padding:28px 16px; text-wrap:pretty; }
