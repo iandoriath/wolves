@@ -276,7 +276,10 @@
   U.hero = (ctx, { alsoToday = [] } = {}) => {
     const { e, team, now, slug } = ctx; const tz = tzOf(team);
     const later = alsoToday.filter(x => x.id !== e.id).map(x => `<button class="btn btn-sm btn-ghost" ${U.dataAttrs({ action: 'open-event', slug, event: x.id })}>Later today: ${U.esc(L.fmtTime(x.starts_at, tz))} ${U.esc(L.eventTitle(x))} ${U.icon('chevron')}</button>`).join('');
-    return `<section class="hero ${e.status === 'cancelled' ? 'cancelled' : ''}" id="event-${e.id}" aria-label="Up next">
+    // The hero event is usually also a row in the schedule below, and both carry an id —
+    // so the hero is namespaced and `event-N` stays a unique handle on the row (deep
+    // links from ?event= / "Since your last visit" scroll to the row and expand it).
+    return `<section class="hero ${e.status === 'cancelled' ? 'cancelled' : ''}" id="hero-event-${e.id}" aria-label="Up next">
       <div class="cluster" style="justify-content:space-between"><span class="kicker">${L.isNow(e, team, now) ? 'Happening now' : 'Up next'}${ctx.showTeam ? ` · ${U.esc(team.emoji)} ${U.esc(team.name)}` : ''}</span><span>${U.badges(ctx)}</span></div>
       <div class="hero-when"><span class="hero-day">${U.esc(L.relativeDay(e.starts_at, tz, now))}</span><span class="hero-time">${e.time_tbd ? 'Time TBD' : U.esc(L.fmtTime(e.starts_at, tz))}</span></div>
       <div class="hero-title">${U.esc(L.eventTitle(e))}${e.kind === 'game' && e.home != null ? ` <span class="pill" style="background:var(--surface-2);vertical-align:middle">${e.home ? 'Home' : 'Away'}</span>` : ''}</div>

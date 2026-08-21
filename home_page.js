@@ -15,7 +15,12 @@ const DEFAULT_COLOR = '#2d6a4f';
 
 const ui = {
   teamFilter: params.get('team') || 'all', filter: 'all', expanded: new Set(),
-  month: null, selectedDay: null, postsOpen: false, changesDismissed: new Set(),
+  month: null, selectedDay: null, postsOpen: false,
+  // The picker's working copy of the household. It has to live outside the DOM: a
+  // background refresh (visibilitychange / online → refreshAll → 'data') re-renders
+  // #app, and the first-run picker is *in* #app — reading the chips back at Done
+  // time would lose every tap made before that render.
+  pickerSel: new Set(),
   pendingEventOpen: Number(params.get('event')) || null,
   pendingPollOpen: Number(params.get('poll')) || null,
   booted: false,
@@ -32,11 +37,20 @@ async function boot() {
   await S.init({ params });
   S.subscribe(onStore);
   app.addEventListener('click', onClick);
+  // 'toggle' doesn't bubble, so the <details> state has to be caught on the way down.
+  app.addEventListener('toggle', onToggle, true);
   topEl.addEventListener('click', onClick);
   if (ui.teamFilter !== 'all' && !SITE_CONFIG.TEAM_SLUGS.includes(ui.teamFilter)) ui.teamFilter = 'all';
+  // An invite link is an explicit "set me up on this team", so it outranks a previous
+  // "Just browsing" — otherwise one peek at a schedule suppresses onboarding forever.
+  if (params.get('c')) ls.del('browsing');
   try { await S.loadTeams(SITE_CONFIG.TEAM_SLUGS); } catch {}
+  ui.pickerSel = new Set(S.household);     // after loadTeams: a ?kids= link fills the household there
   ui.booted = true;
   render();
+}
+function onToggle(ev) {
+  if (ev.target.matches?.('details[data-posts]')) ui.postsOpen = ev.target.open;
 }
 function onStore(ev) {
   if (ev.reason === 'data' || ev.reason === 'household' || ev.reason === 'online' || ev.reason === 'offline' || ev.reason === 'codes') render();
@@ -59,10 +73,13 @@ const ctxFor = (b, e, extra = {}) => ({
   b, team: b.team, e, kids: S.kidsOn(b), isCoach: S.isCoach, now: now(), slug: b.team.slug, origin: ORIGIN,
   readOnly: !S.hasCode(b.team.slug), expanded: ui.expanded.has(e.id), showTeam: !!extra.showTeam,
   overlapWith: extra.overlaps?.get(e.id), multiKid: S.household.length > 1,
-  prevSeen: ui.changesDismissed.has(b.team.slug) ? null : S.prevSeen[b.team.slug],
+  prevSeen: S.prevSeen[b.team.slug],
 });
 const findEvent = (slug, id) => S.bundles[slug]?.events.find(e => e.id === Number(id));
-const teamColor = (b) => b.team.color || DEFAULT_COLOR;
+// The colour lands in a CSS custom property and in <meta name=theme-color>, so it is
+// only ever taken from the team row when it is a plain 6-digit hex.
+const HEX = /^#[0-9a-f]{6}$/i;
+const teamColor = (b) => (HEX.test(String(b.team.color ?? '')) ? b.team.color : DEFAULT_COLOR);
 const tzOf = (b) => b.team.tz || 'America/New_York';
 const matchesFilter = (e) => ui.filter === 'all' || (ui.filter === 'games' ? e.kind === 'game' : e.kind === 'practice');
 const filtered = (events) => events.filter(matchesFilter);
@@ -128,8 +145,9 @@ function afterRender(inView) {
 }
 
 function topbarHtml(single, showTabs = true) {
-  // A kid on two teams is one person — show the name once.
-  const names = [...new Set(myBundles().flatMap(b => S.kidsOn(b)).map(k => k.first_name))];
+  // A kid on two teams is one person — show the name once. De-duplicate on the name as
+  // displayed, so two different kids who share a first name stay two chips.
+  const names = [...new Set(myBundles().flatMap(b => S.kidsOn(b)).map(L.displayName))];
   const chips = names.length ? `<button class="chip" data-action="pick-kids" aria-label="Change my players">${U.icon('users')} ${U.esc(names.join(' · '))}</button>` : '';
   const brand = single
     ? `<span class="brand-emoji">${U.esc(single.team.emoji)}</span><span class="brand-name">${U.esc(single.team.name)}</span>`
@@ -168,7 +186,7 @@ function firstRunHtml() {
 }
 function pickerFormHtml(bundles) {
   return bundles.map(b => `<div><div class="kicker" style="margin:10px 0 6px">${U.esc(b.team.emoji)} ${U.esc(b.team.name)}</div><div class="chips" data-picker="${U.esc(b.team.slug)}">
-    ${b.players.filter(p => p.active).map(p => `<button type="button" class="chip ${S.household.includes(p.id) ? 'on' : ''}" ${U.dataAttrs({ action: 'picker-toggle', player: p.id })} aria-pressed="${S.household.includes(p.id)}">${U.esc(L.displayName(p))}</button>`).join('')}</div></div>`).join('');
+    ${b.players.filter(p => p.active).map(p => { const on = ui.pickerSel.has(p.id); return `<button type="button" class="chip ${on ? 'on' : ''}" ${U.dataAttrs({ action: 'picker-toggle', player: p.id })} aria-pressed="${on}">${U.esc(L.displayName(p))}</button>`; }).join('')}</div></div>`).join('');
 }
 function teamChooserHtml(firstRun = false) {
   const head = firstRun
@@ -225,16 +243,15 @@ function postsHtml(inView) {
   if (!items.length) return '';
   const pinned = items.filter(x => x.p.pinned);
   const rest = items.filter(x => !x.p.pinned).sort((a, b) => L.T(b.p.created_at) - L.T(a.p.created_at));
-  const isNew = (x) => { const ps = ui.changesDismissed.has(x.b.team.slug) ? null : S.prevSeen[x.b.team.slug]; return !!ps && L.T(x.p.created_at) > L.T(ps); };
+  const isNew = (x) => { const ps = S.prevSeen[x.b.team.slug]; return !!ps && L.T(x.p.created_at) > L.T(ps); };
   const opts = (x) => ({ isNew: isNew(x), isCoach: S.isCoach, slug: x.b.team.slug, now: now() });
   const newCount = rest.filter(isNew).length;
   return `<section class="section stack" style="margin-top:8px">${pinned.map(x => `<div class="card">${U.postItem(x.p, x.b.team, opts(x))}</div>`).join('')}
-    ${rest.length ? `<details class="card" ${ui.postsOpen || newCount ? 'open' : ''}><summary class="post" style="font-weight:700">${U.icon('megaphone')} Updates ${newCount ? `<span class="badge badge-new">${newCount} new</span>` : `<span class="muted tiny">(${rest.length})</span>`}</summary>${rest.map(x => U.postItem(x.p, x.b.team, opts(x))).join('')}</details>` : ''}</section>`;
+    ${rest.length ? `<details class="card" data-posts ${ui.postsOpen || newCount ? 'open' : ''}><summary class="post" style="font-weight:700">${U.icon('megaphone')} Updates ${newCount ? `<span class="badge badge-new">${newCount} new</span>` : `<span class="muted tiny">(${rest.length})</span>`}</summary>${rest.map(x => U.postItem(x.p, x.b.team, opts(x))).join('')}</details>` : ''}</section>`;
 }
 function changesHtml(inView) {
   const rows = [];
   for (const b of inView) {
-    if (ui.changesDismissed.has(b.team.slug)) continue;
     const ch = L.changedSince(b, S.prevSeen[b.team.slug], now());
     for (const { event: e, isNew } of ch.events) {
       const label = e.status === 'cancelled' ? 'Cancelled' : isNew ? 'New' : e.rescheduled_from ? 'Moved' : 'Updated';
@@ -274,9 +291,12 @@ function scheduleHtml(inView, showTeam, overlaps) {
   }
   const rec = inView.map(b => ({ b, r: L.record(b.events) })).filter(x => x.r.w + x.r.l + x.r.t);
   const recLabel = rec.length ? ' · ' + rec.map(x => `${U.esc(x.b.team.emoji)} ${x.r.w}–${x.r.l}${x.r.t ? '–' + x.r.t : ''}`).join(' ') : '';
-  const pastRows = past.filter(x => matchesFilter(x.e)).map(x => U.eventRow(ctxFor(x.b, x.e, { showTeam }))).join('');
+  // The summary counts what the open filter actually shows, not the whole past list.
+  const pastShown = past.filter(x => matchesFilter(x.e));
+  const pastRows = pastShown.map(x => U.eventRow(ctxFor(x.b, x.e, { showTeam }))).join('');
+  const pastLabel = pastShown.length ? `${pastShown.length} past event${pastShown.length === 1 ? '' : 's'}` : 'No past events match this filter';
   const pastHtml = past.length
-    ? `<details style="margin-top:16px"><summary class="muted">${past.length} past event${past.length === 1 ? '' : 's'}${recLabel}</summary>${pastRows ? `<div class="rowlist" style="margin-top:8px">${pastRows}</div>` : '<div class="empty">Nothing matches this filter.</div>'}</details>`
+    ? `<details style="margin-top:16px"><summary class="muted">${pastLabel}${recLabel}</summary>${pastRows ? `<div class="rowlist" style="margin-top:8px">${pastRows}</div>` : '<div class="empty">Nothing matches this filter.</div>'}</details>`
     : '';
   return `<section class="section">${head}${body}${pastHtml}</section>`;
 }
@@ -303,7 +323,6 @@ function pickerSheet() {
     onOpen: wireSheet,
   });
 }
-const collectPicker = (root) => [...root.querySelectorAll('[data-action="picker-toggle"][aria-pressed="true"]')].map(el => Number(el.dataset.player));
 function calendarSheet() {
   const inView = teamsInView().length ? teamsInView() : allBundles();
   const rows = inView.map(b => {
@@ -360,12 +379,21 @@ function addCalEventSheet(slug, eventId) {
       if (el && root.contains(el)) { U.closeSheet(); onAction(el.dataset.action, el.dataset, el); }
     }),
   });
+  // One .ics blob per open; hand it back as soon as the sheet closes (Esc, backdrop,
+  // or the "subscribe instead" button, which reuses the same dialog).
+  const dlg = document.getElementById('sheet');
+  if (dlg) {
+    const mo = new MutationObserver(() => { if (!dlg.open) { mo.disconnect(); URL.revokeObjectURL(url); } });
+    mo.observe(dlg, { attributes: true, attributeFilter: ['open'] });
+  }
 }
 
 // ---------- actions ----------
 const actions = {
   'refresh': () => { S.refreshAll(); U.toast('Refreshing…', { duration: 1200 }); },
-  'team-tab': (d) => { ui.teamFilter = d.slug; ui.selectedDay = null; ls.set('browsing', '1'); render(); },
+  // Filtering the view is not "browsing": only the explicit Just-browsing button opts
+  // out of onboarding, so switching tabs can't quietly suppress the invite-link picker.
+  'team-tab': (d) => { ui.teamFilter = d.slug; ui.selectedDay = null; render(); },
   'all-teams': () => { ui.teamFilter = 'all'; ui.selectedDay = null; render(); },
   'browse': () => { ls.set('browsing', '1'); render(); },
   'view': (d) => { S.setView(d.view); render(); },
@@ -380,14 +408,21 @@ const actions = {
   'toggle-event': (d) => { const id = Number(d.event); ui.expanded.has(id) ? ui.expanded.delete(id) : ui.expanded.add(id); render(); },
   'open-event': (d) => { ui.expanded.add(Number(d.event)); S.setView('list'); render(); jumpTo('event-' + Number(d.event)); },
   'open-poll': (d) => jumpTo('poll-' + Number(d.poll)),
-  'dismiss-changes': () => { for (const b of teamsInView()) { ui.changesDismissed.add(b.team.slug); S.dismissChanges(b.team.slug); } render(); },
+  'dismiss-changes': () => { for (const b of teamsInView()) S.dismissChanges(b.team.slug); render(); },
   'install-dismiss': () => { ls.set('installHintDismissed', '1'); render(); },
-  'pick-kids': () => pickerSheet(),
-  'picker-toggle': (d, el) => { el.setAttribute('aria-pressed', el.getAttribute('aria-pressed') !== 'true'); el.classList.toggle('on'); },
-  'picker-done': (d, el) => {
-    const root = el.closest('.sheet-body') || app;
-    const ids = collectPicker(root);
-    S.setHousehold(ids); U.closeSheet(); ls.del('browsing'); ui.teamFilter = 'all'; render();
+  'pick-kids': () => { ui.pickerSel = new Set(S.household); pickerSheet(); },
+  'picker-toggle': (d, el) => {
+    const id = Number(d.player);
+    const on = !ui.pickerSel.has(id);
+    if (on) ui.pickerSel.add(id); else ui.pickerSel.delete(id);
+    el.setAttribute('aria-pressed', on); el.classList.toggle('on', on);
+  },
+  // Set the filter before the household: setHousehold emits, and that one render is
+  // then already the final one — no second render, no flash of the pre-pick view.
+  'picker-done': () => {
+    const ids = [...ui.pickerSel];
+    U.closeSheet(); ls.del('browsing'); ui.teamFilter = 'all';
+    S.setHousehold(ids);
     if (ids.length) U.toast('Saved — tap Going / Maybe / Can’t on any event');
   },
   'rsvp': (d) => {
