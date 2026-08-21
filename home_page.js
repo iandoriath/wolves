@@ -147,7 +147,9 @@ function refreshIndicator() {
 }
 function teamTabsHtml() {
   const mine = myBundles();
-  if (mine.length < 2 && ui.teamFilter === 'all') return '';
+  // A coach always gets the tabs: the coach tools all write to one team, so without a
+  // way to narrow the view down to a single team they'd have nothing to act on.
+  if (mine.length < 2 && ui.teamFilter === 'all' && !S.isCoach) return '';
   const tabs = [{ slug: 'all', label: 'All' }, ...allBundles().map(b => ({ slug: b.team.slug, label: `${b.team.emoji} ${b.team.name.split(' ').slice(-1)[0]}` }))];
   return `<div class="topbar-inner" style="padding-top:0"><div class="seg" role="group" aria-label="Team">${tabs.map(t => `<button type="button" aria-pressed="${ui.teamFilter === t.slug}" ${U.dataAttrs({ action: 'team-tab', slug: t.slug })}>${U.esc(t.label)}</button>`).join('')}</div></div>`;
 }
@@ -190,6 +192,11 @@ function homeHtml(inView) {
   if (!S.online) parts.push(`<div class="notice notice-warn">${U.icon('alert')}<div>You’re offline — showing the saved schedule. RSVPs you tap will sync later.</div></div>`);
   for (const b of inView) if (!S.hasCode(b.team.slug)) parts.push(`<div class="notice notice-info">${U.icon('info')}<div><b>${U.esc(b.team.name)}</b>: tap your invite link to RSVP and see who’s going.</div></div>`);
   if (U.isIOS && !U.isStandalone && !ls.get('installHintDismissed') && S.household.length) parts.push(`<div class="notice notice-info">${U.icon('share')}<div>Add this to your Home Screen: tap <b>Share</b> then <b>Add to Home Screen</b>. <button class="btn btn-ghost btn-sm" data-action="install-dismiss">Got it</button></div></div>`);
+  // coach tools: every sheet writes to exactly one team, so the row only appears once
+  // the view is narrowed to one — otherwise point at the tabs that narrow it.
+  if (S.isCoach) parts.push(inView.length === 1
+    ? coachBarHtml(inView[0].team.slug)
+    : '<p class="tiny muted">Coach tools: pick a team tab to add events, announce, or manage.</p>');
   parts.push(postsHtml(inView));
   parts.push(changesHtml(inView));
   // needs your answer — only for teams this phone can actually write to
@@ -210,6 +217,7 @@ function homeHtml(inView) {
   for (const b of inView) for (const poll of b.polls.filter(p => p.status === 'open')) parts.push(`<section class="section">${U.pollCard(ctxFor(b, { id: 0 }), poll)}</section>`);
   parts.push(scheduleHtml(inView, showTeam, overlaps));
   parts.push(footerHtml());
+  if (S.isCoach && inView.length === 1) parts.push(fabHtml(inView[0].team.slug));
   return parts.join('');
 }
 function postsHtml(inView) {
@@ -410,6 +418,55 @@ const actions = {
   'copy': async (d) => { U.toast((await U.copy(d.text)) ? 'Copied' : 'Couldn’t copy'); },
   'share-text': (d) => U.share({ title: d.title, text: d.text, url: d.url }),
 };
+// ---------- coach mode ----------
+// Coach mode is this same page with extra affordances rather than a separate screen:
+// the ⋯ "Manage" menu on the hero and expanded rows, tappable names under "Who's going",
+// poll close/convert, post edit (all emitted by ui.js when ctx.isCoach), plus the row of
+// team-level buttons and the "+" FAB below. The forms live in coach_sheets.js; this file
+// only resolves data-attribute ids back to bundle rows and hands them over.
+function coachBarHtml(slug) {
+  const at = (action) => U.dataAttrs({ action, slug });
+  return `<div class="cluster" style="margin:6px 0 4px">
+    <button class="btn btn-sm" ${at('coach-announce')}>${U.icon('megaphone')} Announce</button>
+    <button class="btn btn-sm" ${at('coach-poll-new')}>${U.icon('users')} New poll</button>
+    <button class="btn btn-sm" ${at('coach-bulk')}>${U.icon('calendar')} Add a series</button>
+    <button class="btn btn-sm" ${at('coach-settings')}>${U.icon('edit')} Team settings</button></div>`;
+}
+function fabHtml(slug) {
+  return `<button class="fab" ${U.dataAttrs({ action: 'coach-add', slug })} aria-label="Add event">${U.icon('plus')}</button>`;
+}
+// The button's own slug wins; team-level buttons that omit it fall back to the team in view.
+const coachSlug = (d) => d.slug || teamsInView()[0]?.team.slug || SITE_CONFIG.TEAM_SLUGS[0];
+const rowById = (list, id) => (list || []).find(x => x.id === Number(id));
+// Every coach handler runs through this: coach markup only renders when Store.isCoach, but
+// a DOM left over from before a sign-out — or a hand-typed data-action — must not reach a
+// coach write. A missing bundle (offline first load, failed fetch) says so instead of throwing.
+function coach(fn) {
+  return (d) => {
+    const C = globalThis.CoachSheets;
+    if (!S.isCoach || !C) return;
+    const slug = coachSlug(d), b = S.bundles[slug];
+    if (!b) { U.toast('That team hasn’t loaded yet — tap Refresh'); return; }
+    fn({ C, slug, b, d });
+  };
+}
+Object.assign(actions, {
+  'coach-add': coach(({ C, slug }) => C.eventSheet({ slug })),
+  'coach-bulk': coach(({ C, slug }) => C.bulkAddSheet({ slug })),
+  'coach-announce': coach(({ C, slug }) => C.announceSheet({ slug })),
+  'coach-poll-new': coach(({ C, slug }) => C.pollSheet({ slug })),
+  'coach-settings': coach(({ C, slug }) => C.settingsSheet({ slug })),
+  'coach-menu': coach(({ C, slug, d }) => { const e = findEvent(slug, d.event); if (e) C.menu({ slug, event: e }); }),
+  'coach-text-noreply': coach(({ C, slug, d }) => { const e = findEvent(slug, d.event); if (e) C.textNoReplies({ slug, event: e }); }),
+  'coach-player': coach(({ C, slug, b, d }) => { const player = rowById(b.players, d.player); if (player) C.playerSheet({ slug, player, event: findEvent(slug, d.event) || null }); }),
+  'coach-post-edit': coach(({ C, slug, b, d }) => { const post = rowById(b.posts, d.post); if (post) C.announceSheet({ slug, post }); }),
+  'coach-poll-close': coach(({ C, slug, b, d }) => { const poll = rowById(b.polls, d.poll); if (poll) C.closePoll({ slug, poll }); }),
+  'coach-poll-convert': coach(({ C, slug, b, d }) => {
+    const poll = rowById(b.polls, d.poll), slot = rowById(b.slots, d.slot);
+    if (poll && slot) C.convertSlot({ slug, poll, slot });
+  }),
+});
+
 function onAction(name, d, el) { const fn = actions[name]; if (fn) fn(d, el); else console.warn('no action', name); }
 function onClick(ev) {
   const el = ev.target.closest('[data-action]');
