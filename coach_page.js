@@ -1,8 +1,10 @@
 /* coach_page.js — the admin page coach.html boots.
    Passcode sign-in, a cross-team "at a glance" summary, then per-team schedule
    actions, roster + contacts (paste-add, mark-all-inactive), announcements and
-   team settings. Every write goes through CoachSheets or Store.coachWrite(),
-   which refetch the bundle so the page re-renders off the 'data' event.
+   team settings. Writes go through CoachSheets or Store.coachWrite(), which refetch
+   the bundle so the page re-renders off the 'data' event; the two multi-row loops
+   (paste-add, mark-all-inactive) drive Api directly so they can refetch and report
+   partial progress when one row fails part way through.
 
    ES module. Reads Store (store.js), UI (ui.js), ScheduleLib (schedule_lib.js),
    CoachSheets (coach_sheets.js) and whichever Api is live (api.js, or
@@ -20,16 +22,21 @@ if (!SITE_CONFIG.TEAM_SLUGS.includes(ui.tab)) ui.tab = SITE_CONFIG.TEAM_SLUGS[0]
 // sized to its own content leaves position:sticky nothing to travel inside, so the
 // bar would scroll away. Empty markup drops the class so no bare colour band shows.
 const setTop = (html) => { topEl.className = html ? 'topbar' : ''; topEl.innerHTML = html; };
+// The colour lands in a CSS custom property and in <meta name=theme-color>, so a
+// stored value that isn't a plain hex triple gets replaced rather than injected.
+const HEX = /^#[0-9a-f]{6}$/i;
+const accentOf = (team) => (HEX.test(String(team?.color ?? '')) ? team.color : DEFAULT_COLOR);
 const setAccent = (color) => {
   document.documentElement.style.setProperty('--team', color);
   document.querySelector('meta[name=theme-color]')?.setAttribute('content', color);
 };
 
 // ---------- boot ----------
+let unsubscribe = null;
 async function boot() {
   if (params.get('mock')) { globalThis.MOCK_MODE = params.get('mock'); await import('./mock_api.js'); }
   await S.init({ params });
-  S.subscribe(onStore);
+  unsubscribe = S.subscribe(onStore);
   app.addEventListener('click', onClick);
   topEl.addEventListener('click', onClick);
   if (!S.isCoach) { renderLogin(); return; }
@@ -79,6 +86,10 @@ async function login() {
   render();
 }
 async function logout() {
+  // Drop coach state and stop listening first: signOut() and the refetch it can race
+  // with must not be able to paint another frame of coach-only data on the way out.
+  S.isCoach = false;
+  unsubscribe?.(); unsubscribe = null;
   try { await Api.signOut(); } catch {}
   // The cached bundles hold parent phone numbers and emails, so they leave with the session.
   for (const slug of SITE_CONFIG.TEAM_SLUGS) { try { localStorage.removeItem('wolves:cache:' + slug); } catch {} }
@@ -91,7 +102,6 @@ async function logout() {
 
 // ---------- render ----------
 const bundles = () => SITE_CONFIG.TEAM_SLUGS.map(s => S.bundles[s]).filter(Boolean);
-const shortName = (team) => team.name.split(' ').filter(Boolean).slice(-1)[0] || team.name;
 
 function render() {
   const bs = bundles();
@@ -105,17 +115,21 @@ function render() {
   const b = bs.find(x => x.team.slug === ui.tab) || bs[0];
   ui.tab = b.team.slug;
   const y = window.scrollY;
-  setAccent(b.team.color || DEFAULT_COLOR);
+  setAccent(accentOf(b.team));
   document.title = 'Coach · ' + b.team.name;
   setTop(topbarHtml(bs, b));
   app.innerHTML = summaryHtml(bs) + teamAdminHtml(b);
   window.scrollTo(0, y);
 }
 
+// Tabs carry the team's full name. Two long names don't fit side by side on a 390px
+// phone, so each button is capped and ellipsised rather than abbreviated — a clipped
+// "SAA 10U Wol…" still reads as the team; a bare last token ("U9") doesn't.
+const TAB_STYLE = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:43vw';
 function topbarHtml(bs, b) {
   const tabs = bs.length > 1
     ? `<div class="topbar-inner" style="padding-top:0"><div class="seg" role="group" aria-label="Team">${bs.map(x =>
-        `<button type="button" aria-pressed="${x.team.slug === ui.tab}" ${U.dataAttrs({ action: 'tab', slug: x.team.slug })}>${U.esc(x.team.emoji)} ${U.esc(shortName(x.team))}</button>`).join('')}</div></div>`
+        `<button type="button" style="${TAB_STYLE}" aria-pressed="${x.team.slug === ui.tab}" ${U.dataAttrs({ action: 'tab', slug: x.team.slug })}>${U.esc(x.team.emoji)} ${U.esc(x.team.name)}</button>`).join('')}</div></div>`
     : '';
   return `<div class="topbar-inner"><div class="brand"><span class="brand-name">Coach admin</span></div>
     <a class="btn btn-ghost btn-sm" href="index.html?team=${encodeURIComponent(b.team.slug)}">Team page</a>
@@ -208,24 +222,36 @@ function pasteSheet(slug) {
     <button type="button" class="btn btn-ghost" data-cancel>Cancel</button></div>` });
   const okBtn = root.querySelector('[data-ok]'), preview = root.querySelector('[data-preview]');
   let rows = [];
+  const paint = ({ retry = false } = {}) => {
+    preview.innerHTML = rows.length
+      ? `<div class="chips">${rows.map(r => `<span class="chip">${U.esc(L.displayName(r))}</span>`).join('')}</div>`
+      : `<p class="muted">${retry ? 'Everyone made it — nothing left to add.' : 'Nothing to add.'}</p>`;
+    okBtn.disabled = !rows.length;
+    okBtn.textContent = !rows.length ? 'Add players'
+      : retry ? `Add ${rows.length} remaining` : `Add ${rows.length} player${rows.length === 1 ? '' : 's'}`;
+  };
   // Any edit after a preview invalidates it, so "Add players" can never insert a stale list.
   const invalidate = () => { rows = []; okBtn.disabled = true; okBtn.textContent = 'Add players'; preview.innerHTML = ''; };
   root.querySelector('#paste').addEventListener('input', invalidate);
   root.querySelector('[data-cancel]').onclick = () => close();
-  root.querySelector('[data-prev]').onclick = () => {
-    rows = L.parseRosterPaste(root.querySelector('#paste').value);
-    preview.innerHTML = rows.length
-      ? `<div class="chips">${rows.map(r => `<span class="chip">${U.esc(L.displayName(r))}</span>`).join('')}</div>`
-      : '<p class="muted">Nothing to add.</p>';
-    okBtn.disabled = !rows.length;
-    okBtn.textContent = rows.length ? `Add ${rows.length} player${rows.length === 1 ? '' : 's'}` : 'Add players';
-  };
+  root.querySelector('[data-prev]').onclick = () => { rows = L.parseRosterPaste(root.querySelector('#paste').value); paint(); };
+  // One insert per row with no transaction behind it, so a failure half way through
+  // leaves the earlier rows on the server. Track what actually landed, refetch so the
+  // roster shows it, and drop those rows from the list — otherwise a retry duplicates them.
   okBtn.onclick = async () => {
     const n = rows.length; if (!n) return;
     okBtn.disabled = true;
-    const ok = await coachWrite(slug, async () => { for (const r of rows) await Api.savePlayer({ team_id: b.team.id, first_name: r.first_name, last_initial: r.last_initial, active: true }); });
-    if (!ok) { okBtn.disabled = false; return; }
-    close(); U.toast(`Added ${n} player${n === 1 ? '' : 's'}`);
+    const landed = [];
+    let err = null;
+    for (const r of rows) {
+      try { await Api.savePlayer({ team_id: b.team.id, first_name: r.first_name, last_initial: r.last_initial, active: true }); landed.push(r); }
+      catch (e) { err = e; break; }
+    }
+    await S.fetchTeam(slug).catch(() => {});
+    if (!err) { close(); U.toast(`Added ${n} player${n === 1 ? '' : 's'}`); return; }
+    rows = rows.filter(r => !landed.includes(r));
+    paint({ retry: true });
+    U.toast(`Added ${landed.length} of ${n} — ${err?.message || err}`);
   };
 }
 
@@ -234,21 +260,31 @@ async function markAllInactive(slug) {
   const active = b.players.filter(p => p.active);
   if (!active.length) return U.toast('Nobody is active');
   if (!(await U.confirm({ title: 'Mark everyone inactive?', body: 'Use this at season end. Parents’ saved players will stop showing until you re-activate them.', confirmLabel: 'Mark all inactive', danger: true }))) return;
-  const ok = await coachWrite(slug, async () => { for (const p of active) await Api.savePlayer({ id: p.id, active: false }); });
-  if (ok) U.toast(`${active.length} player${active.length === 1 ? '' : 's'} marked inactive`);
+  // Same per-row loop as the paste-add, but each write is idempotent, so a failure only
+  // needs the refetch — pressing the button again re-tries whoever is still active.
+  let done = 0, err = null;
+  for (const p of active) {
+    try { await Api.savePlayer({ id: p.id, active: false }); done++; }
+    catch (e) { err = e; break; }
+  }
+  await S.fetchTeam(slug).catch(() => {});
+  U.toast(err ? `Marked ${done} of ${active.length} — ${err?.message || err}`
+    : `${active.length} player${active.length === 1 ? '' : 's'} marked inactive`);
 }
 
 // ---------- actions ----------
 const actions = {
   login,
   logout,
-  refresh: () => { U.toast('Refreshing…', { duration: 1200 }); S.refreshAll(); },
+  // Reached from the "can't reach the server" state, where S.bundles is empty — so this
+  // has to load the configured teams, not refreshAll() over the bundles already held.
+  refresh: () => { U.toast('Refreshing…', { duration: 1200 }); S.loadTeams(SITE_CONFIG.TEAM_SLUGS).then(render).catch(() => render()); },
   tab: (d) => { if (d.slug === ui.tab) return; ui.tab = d.slug; render(); window.scrollTo(0, 0); },
   add: (d) => C.eventSheet({ slug: d.slug }),
   bulk: (d) => C.bulkAddSheet({ slug: d.slug }),
   announce: (d) => C.announceSheet({ slug: d.slug }),
   poll: (d) => C.pollSheet({ slug: d.slug }),
-  settings: (d) => C.settingsSheet({ slug: d.slug }),
+  settings: (d) => C.settingsSheet({ slug: d.slug }).catch(e => U.toast('Couldn’t open settings: ' + (e?.message || e))),
   // U.postItem renders the coach Edit button with this action.
   'coach-post-edit': (d) => {
     const post = S.bundles[d.slug]?.posts.find(p => p.id === Number(d.post));
