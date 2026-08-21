@@ -212,5 +212,39 @@ eq(L.parseRosterPaste('Kate B.\nSam\n  Zoe Brown \n\nMia b'), [
   { first_name: 'Zoe', last_initial: 'B' }, { first_name: 'Mia', last_initial: 'B' }], 'parseRosterPaste');
 eq(L.parseRosterPaste(''), [], 'parseRosterPaste empty');
 
+// --- ICS v2
+const icsNow = new Date('2026-05-01T12:00:00Z');
+const icsEvents = [
+  { id: 5, kind: 'game', opponent: 'Tigers', home: true, starts_at: '2026-05-02T14:00:00Z', location: 'Field 3', notes: 'wear white', status: 'scheduled', status_note: '', updated_at: '2026-04-20T10:00:00Z' },
+  { id: 6, kind: 'practice', starts_at: '2026-05-04T22:00:00Z', location: '', notes: '', status: 'cancelled', status_note: 'Rain', updated_at: '2026-05-01T09:00:00Z' },
+  { id: 7, kind: 'other', title: 'Picture day', starts_at: '2026-05-09T16:00:00Z', time_tbd: true, location: 'Pavilion', notes: '', status: 'scheduled', status_note: '', updated_at: '2026-04-01T00:00:00Z' },
+  { id: 8, kind: 'game', opponent: 'Bears', home: false, starts_at: '2026-01-10T14:00:00Z', status: 'scheduled', status_note: '', updated_at: '2026-01-01T00:00:00Z' }, // older than 60 days → excluded
+  { id: 9, kind: 'game', opponent: 'Lions', home: null, starts_at: '2026-05-16T14:00:00Z', status: 'tentative', status_note: 'Decision by 8:30', rescheduled_from: '2026-05-15T14:00:00Z', updated_at: '2026-04-30T00:00:00Z' },
+];
+const ics = L.buildIcs(team, icsEvents, O, icsNow);
+const unfolded = ics.replace(/\r\n /g, '');            // undo RFC 5545 line folding for content checks
+const has = (s, msg) => ok(unfolded.includes(s), 'ics has ' + (msg || s));
+has('BEGIN:VCALENDAR'); has('X-WR-CALNAME:SAA 10U Wolves'); has('X-PUBLISHED-TTL:PT1H'); has('REFRESH-INTERVAL;VALUE=DURATION:PT1H');
+has('UID:evt-5@wolves.glorbnorb.com'); has('DTSTART:20260502T140000Z'); has('DTEND:20260502T153000Z');
+has('SUMMARY:🥎 SAA 10U Wolves vs Tigers · arrive 9:30 AM', 'game summary with arrive-by');
+has('STATUS:CONFIRMED'); has('URL:https://wolves.glorbnorb.com/?team=softball&event=5');
+has('DESCRIPTION:Arrive by 9:30 AM\\nHome game\\nwear white\\nhttps://wolves.glorbnorb.com/?team=softball&event=5', 'description lines');
+has('SEQUENCE:' + Math.floor(new Date('2026-04-20T10:00:00Z').getTime() / 1000)); has('LAST-MODIFIED:20260420T100000Z');
+has('TRIGGER:-P1D'); has('TRIGGER:-PT2H');
+has('UID:evt-6@wolves.glorbnorb.com', 'cancelled kept'); has('SUMMARY:CANCELLED — 🥎 SAA 10U Wolves practice'); has('STATUS:CANCELLED');
+has('DTSTART;VALUE=DATE:20260509'); has('DTEND;VALUE=DATE:20260510'); has('SUMMARY:🥎 SAA 10U Wolves: Picture day');
+has('SUMMARY:(weather pending) 🥎 SAA 10U Wolves vs Lions · arrive 9:30 AM'); has('STATUS:TENTATIVE');
+has('DESCRIPTION:Arrive by 9:30 AM\\nDecision by 8:30\\nMoved from Fri\\, May 15 10:00 AM\\nhttps://', 'tentative description (comma escaped)');
+ok(!ics.includes('evt-8'), 'ics excludes events older than 60 days');
+ok(!ics.includes('Kate'), 'ics has no names');
+ok(ics.split('\r\n').every(l => [...l].length <= 75), 'ics lines folded to ≤75 chars');
+// cancelled + all-day events carry no alarms
+const cancelledBlock = unfolded.slice(unfolded.indexOf('UID:evt-6@'), unfolded.indexOf('END:VEVENT', unfolded.indexOf('UID:evt-6@')));
+ok(!cancelledBlock.includes('VALARM'), 'no alarm on cancelled');
+const tbdBlock = unfolded.slice(unfolded.indexOf('UID:evt-7@'), unfolded.indexOf('END:VEVENT', unfolded.indexOf('UID:evt-7@')));
+ok(!tbdBlock.includes('VALARM'), 'no alarm on all-day TBD');
+const single = L.buildEventIcs(team, icsEvents[0], O);
+ok(single.startsWith('BEGIN:VCALENDAR') && single.includes('UID:evt-5@') && !single.includes('evt-6'), 'buildEventIcs single event');
+
 console.log(fails ? `${fails}/${count} FAILURES` : `ALL PASS (${count})`);
 process.exit(fails ? 1 : 0);

@@ -272,5 +272,52 @@
     return { first_name: first.replace(/[.,]+$/, ''), last_initial: initial || null };
   });
 
+  // ---------- ICS ----------
+  const icsEsc = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/,/g, '\\,').replace(/;/g, '\\;').replace(/\r?\n/g, '\\n');
+  const fold = (line) => {                    // RFC 5545: fold at 75 octets; we fold by code points (≤ 75 chars, safe for emoji)
+    const cps = [...line], out = [];
+    let i = 0, first = true;
+    while (i < cps.length) { const n = first ? 73 : 72; out.push((first ? '' : ' ') + cps.slice(i, i + n).join('')); i += n; first = false; }
+    return out.join('\r\n');
+  };
+  const nextDayKey = (key) => new Date(keyMs(key) + 86400000).toISOString().slice(0, 10);
+  L.icsEventLines = (team, e, origin) => {
+    const tz = team.tz || 'America/New_York';
+    const ab = L.arriveBy(e, team);
+    const base = e.kind === 'practice' ? `${team.emoji} ${team.name} practice`
+      : e.kind === 'game' ? `${team.emoji} ${team.name} ${L.eventTitle(e)}` : `${team.emoji} ${team.name}: ${L.eventTitle(e)}`;
+    let summary = base.trim();
+    if (ab && e.status !== 'cancelled') summary += ` · arrive ${L.fmtTime(ab, tz)}`;
+    if (e.status === 'cancelled') summary = `CANCELLED — ${summary}`;
+    else if (e.status === 'tentative') summary = `(weather pending) ${summary}`;
+    const link = L.eventLink(origin, team.slug, e.id);
+    const desc = [
+      ab && e.status !== 'cancelled' ? `Arrive by ${L.fmtTime(ab, tz)}` : null,
+      e.kind === 'game' && e.home != null ? (e.home ? 'Home game' : 'Away game') : null,
+      e.status_note || null,
+      e.rescheduled_from ? `Moved from ${L.fmtDay(e.rescheduled_from, tz)} ${L.fmtTime(e.rescheduled_from, tz)}` : null,
+      e.notes || null, link].filter(Boolean).join('\n');
+    const stamp = e.updated_at || e.starts_at;
+    const lines = ['BEGIN:VEVENT', `UID:evt-${e.id}@wolves.glorbnorb.com`, `DTSTAMP:${icsStamp(stamp)}`,
+      `SEQUENCE:${Math.floor(T(stamp) / 1000)}`, `LAST-MODIFIED:${icsStamp(stamp)}`];
+    if (e.time_tbd) { const d = L.dateKey(e.starts_at, tz); lines.push(`DTSTART;VALUE=DATE:${d.replace(/-/g, '')}`, `DTEND;VALUE=DATE:${nextDayKey(d).replace(/-/g, '')}`); }
+    else lines.push(`DTSTART:${icsStamp(e.starts_at)}`, `DTEND:${icsStamp(L.eventEnd(e, team))}`);
+    lines.push(`SUMMARY:${icsEsc(summary)}`, `LOCATION:${icsEsc(e.location)}`, `DESCRIPTION:${icsEsc(desc)}`, `URL:${link}`,
+      `STATUS:${e.status === 'cancelled' ? 'CANCELLED' : e.status === 'tentative' ? 'TENTATIVE' : 'CONFIRMED'}`);
+    if (e.status !== 'cancelled' && !e.time_tbd)
+      for (const trig of ['-P1D', '-PT2H']) lines.push('BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${icsEsc(summary)}`, `TRIGGER:${trig}`, 'END:VALARM');
+    lines.push('END:VEVENT');
+    return lines;
+  };
+  const icsWrap = (team, body) => ['BEGIN:VCALENDAR', 'VERSION:2.0', `PRODID:-//wolves.glorbnorb.com//${icsEsc(team.name)}//EN`,
+    'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', `X-WR-CALNAME:${icsEsc(team.name)}`, 'X-PUBLISHED-TTL:PT1H', 'REFRESH-INTERVAL;VALUE=DURATION:PT1H',
+    ...body, 'END:VCALENDAR'].map(fold).join('\r\n') + '\r\n';
+  L.buildIcs = (team, events, origin, now) => {
+    const cutoff = now.getTime() - 60 * 86400000;
+    const body = [...events].filter(e => T(e.starts_at) >= cutoff).sort(byStart).flatMap(e => L.icsEventLines(team, e, origin));
+    return icsWrap(team, body);
+  };
+  L.buildEventIcs = (team, e, origin) => icsWrap(team, L.icsEventLines(team, e, origin));
+
   globalThis.ScheduleLib = L;
 })();

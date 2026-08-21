@@ -1,7 +1,7 @@
 name: ics-feed
 on:
   schedule:
-    - cron: '17 * * * *'   # hourly; also keeps the Supabase free project awake
+    - cron: '*/15 * * * *'   # every 15 min; also keeps the Supabase free project awake
   workflow_dispatch:
 permissions:
   contents: write
@@ -19,10 +19,13 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      - name: weekly heartbeat (Mondays 00:xx UTC) so GitHub never disables this schedule
+        run: |
+          if [ "$(date -u +%u)" = "1" ] && [ "$(date -u +%H)" = "00" ]; then date -u +%F > .heartbeat; fi
       - run: |
           git config user.name "ics-bot"
           git config user.email "actions@github.com"
-          git add *.ics
+          git add *.ics .heartbeat 2>/dev/null || git add *.ics
           git diff --cached --quiet || git commit -m "ics: refresh feeds"
           git pull --rebase
           git push
