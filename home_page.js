@@ -76,6 +76,12 @@ const ctxFor = (b, e, extra = {}) => ({
   prevSeen: S.prevSeen[b.team.slug],
 });
 const findEvent = (slug, id) => S.bundles[slug]?.events.find(e => e.id === Number(id));
+// While offline, store.flush() emits 'queued' *synchronously* inside the write call, so the
+// offline toast it raises is replaced a moment later by the handler's own confirmation.
+// Fold the hint into that confirmation instead — the parent has to learn the answer is only
+// on this phone for now (§7.4). When a write is queued by a network error while onLine is
+// still true, flush emits after the await and its toast survives on its own.
+const offlineHint = () => S.online ? '' : ' · offline, will sync later';
 // The colour lands in a CSS custom property and in <meta name=theme-color>, so it is
 // only ever taken from the team row when it is a plain 6-digit hex.
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -361,7 +367,7 @@ function noteSheet(slug, eventId, playerId) {
   root.querySelector('[data-save]').onclick = () => {
     const v = root.querySelector('#note-input').value.trim();
     S.rsvp(slug, Number(eventId), Number(playerId), r?.status || 'going', v);
-    close(); U.toast('Note saved');
+    close(); U.toast('Note saved' + offlineHint());
   };
 }
 function addCalEventSheet(slug, eventId) {
@@ -432,7 +438,7 @@ const actions = {
     const kid = b.players.find(p => p.id === Number(d.player)); const e = findEvent(d.slug, d.event);
     const { undo } = S.rsvp(d.slug, Number(d.event), Number(d.player), d.status);
     const label = d.status === 'going' ? 'Going' : d.status === 'maybe' ? 'Maybe' : 'Can’t';
-    U.toast(`${kid ? L.displayName(kid) : 'Saved'}: ${label}${e ? ' · ' + L.eventTitle(e) : ''}`,
+    U.toast(`${kid ? L.displayName(kid) : 'Saved'}: ${label}${e ? ' · ' + L.eventTitle(e) : ''}${offlineHint()}`,
       { action: { label: 'Undo', onClick: () => { undo(); U.toast('Undone'); } } });
   },
   'vote': (d) => {
@@ -440,7 +446,7 @@ const actions = {
     const cur = b.votes.find(v => v.slot_id === Number(d.slot) && v.player_id === Number(d.player))?.choice;
     S.vote(d.slug, Number(d.slot), Number(d.player), cur === d.choice ? null : d.choice);
   },
-  'claim': (d) => { S.claim(d.slug, Number(d.event), d.role, Number(d.player)); U.toast(`You’ve got ${d.role} — thank you!`); },
+  'claim': (d) => { S.claim(d.slug, Number(d.event), d.role, Number(d.player)); U.toast(`You’ve got ${d.role} — thank you!${offlineHint()}`); },
   'unclaim': (d) => { S.unclaim(d.slug, Number(d.event), d.role); },
   'note': (d) => noteSheet(d.slug, d.event, d.player),
   'share-event': (d) => {
