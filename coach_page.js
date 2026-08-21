@@ -220,36 +220,66 @@ function pasteSheet(slug) {
     <div class="sheet-actions"><button type="button" class="btn" data-prev>Preview</button>
     <button type="button" class="btn btn-primary" data-ok disabled>Add players</button>
     <button type="button" class="btn btn-ghost" data-cancel>Cancel</button></div>` });
-  const okBtn = root.querySelector('[data-ok]'), preview = root.querySelector('[data-preview]');
-  let rows = [];
+  const okBtn = root.querySelector('[data-ok]'), preview = root.querySelector('[data-preview]'), ta = root.querySelector('#paste');
+  // Read the bundle fresh every time: S.fetchTeam replaces S.bundles[slug] wholesale, so
+  // the object captured when the sheet opened goes stale the moment a write lands.
+  const cur = () => S.bundles[slug] || b;
+  const key = (r) => `${String(r.first_name ?? '').trim().toLowerCase()}|${String(r.last_initial ?? '').trim().toLowerCase()}`;
+  const lineFor = (r) => r.first_name + (r.last_initial ? ' ' + r.last_initial : '');
+  // Names already on the roster (and repeats inside one paste) are dropped rather than
+  // inserted — a second paste of the same list should be a no-op, not a duplicate roster.
+  const split = (parsed) => {
+    const known = new Set(cur().players.map(key)), seen = new Set(), fresh = [], dup = [];
+    for (const r of parsed) {
+      const k = key(r);
+      if (known.has(k) || seen.has(k)) dup.push(r); else { seen.add(k); fresh.push(r); }
+    }
+    return { fresh, dup };
+  };
+
+  let rows = [], dupes = [];
+  // The textarea is the input to Preview, so it has to track `rows` — otherwise a second
+  // Preview after a partial failure re-parses the original list and re-adds what landed.
+  const syncTextarea = () => { ta.value = rows.map(lineFor).join('\n'); };
   const paint = ({ retry = false } = {}) => {
-    preview.innerHTML = rows.length
-      ? `<div class="chips">${rows.map(r => `<span class="chip">${U.esc(L.displayName(r))}</span>`).join('')}</div>`
-      : `<p class="muted">${retry ? 'Everyone made it — nothing left to add.' : 'Nothing to add.'}</p>`;
+    const chips = [
+      ...rows.map(r => `<span class="chip">${U.esc(L.displayName(r))}</span>`),
+      ...dupes.map(r => `<span class="chip" style="opacity:.55" title="Already on the roster">${U.esc(L.displayName(r))} · on roster</span>`),
+    ].join('');
+    const note = !rows.length
+      ? `<p class="muted">${dupes.length ? 'Everyone on that list is already on the roster.' : retry ? 'Everyone made it — nothing left to add.' : 'Nothing to add.'}</p>`
+      : dupes.length ? `<p class="tiny muted" style="margin-top:6px">${dupes.length} already on the roster — skipped.</p>` : '';
+    preview.innerHTML = (chips ? `<div class="chips">${chips}</div>` : '') + note;
     okBtn.disabled = !rows.length;
     okBtn.textContent = !rows.length ? 'Add players'
       : retry ? `Add ${rows.length} remaining` : `Add ${rows.length} player${rows.length === 1 ? '' : 's'}`;
   };
   // Any edit after a preview invalidates it, so "Add players" can never insert a stale list.
-  const invalidate = () => { rows = []; okBtn.disabled = true; okBtn.textContent = 'Add players'; preview.innerHTML = ''; };
-  root.querySelector('#paste').addEventListener('input', invalidate);
+  // syncTextarea() assigns .value directly, which fires no input event — the reduced list survives.
+  const invalidate = () => { rows = []; dupes = []; okBtn.disabled = true; okBtn.textContent = 'Add players'; preview.innerHTML = ''; };
+  ta.addEventListener('input', invalidate);
   root.querySelector('[data-cancel]').onclick = () => close();
-  root.querySelector('[data-prev]').onclick = () => { rows = L.parseRosterPaste(root.querySelector('#paste').value); paint(); };
+  root.querySelector('[data-prev]').onclick = () => { ({ fresh: rows, dup: dupes } = split(L.parseRosterPaste(ta.value))); paint(); };
   // One insert per row with no transaction behind it, so a failure half way through
   // leaves the earlier rows on the server. Track what actually landed, refetch so the
   // roster shows it, and drop those rows from the list — otherwise a retry duplicates them.
   okBtn.onclick = async () => {
-    const n = rows.length; if (!n) return;
+    const recheck = split(rows);                 // the roster may have moved since Preview
+    rows = recheck.fresh; dupes = [...dupes, ...recheck.dup];
+    const n = rows.length;
+    if (!n) { syncTextarea(); paint(); return U.toast('Already on the roster — nothing to add'); }
     okBtn.disabled = true;
     const landed = [];
     let err = null;
     for (const r of rows) {
-      try { await Api.savePlayer({ team_id: b.team.id, first_name: r.first_name, last_initial: r.last_initial, active: true }); landed.push(r); }
+      try { await Api.savePlayer({ team_id: cur().team.id, first_name: r.first_name, last_initial: r.last_initial, active: true }); landed.push(r); }
       catch (e) { err = e; break; }
     }
     await S.fetchTeam(slug).catch(() => {});
     if (!err) { close(); U.toast(`Added ${n} player${n === 1 ? '' : 's'}`); return; }
     rows = rows.filter(r => !landed.includes(r));
+    dupes = [];
+    syncTextarea();
     paint({ retry: true });
     U.toast(`Added ${landed.length} of ${n} — ${err?.message || err}`);
   };
