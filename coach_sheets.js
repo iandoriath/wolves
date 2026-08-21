@@ -245,7 +245,9 @@
     wire(root, { x: () => close(), 'share-inv': () => U.share({ title: `${t.name} schedule`, text: `${t.emoji} ${t.name} schedule & RSVP — tap to pick your player:`, url: inv }), 'copy-inv': async () => U.toast((await U.copy(inv)) ? 'Copied' : 'Couldn’t copy'),
       regen: async () => { const d = readDraft();
         if (!(await U.confirm({ title: 'Regenerate invite code?', body: 'Every parent will need the new link to RSVP again.', confirmLabel: 'Regenerate', danger: true }))) return C.settingsSheet({ slug, draft: d });
-        const nc = Math.random().toString(36).slice(2, 8).toUpperCase();
+        // Same shape the migration seeds with — upper(encode(gen_random_bytes(4),'hex')) —
+        // from a CSPRNG, because this code is the only thing gating the roster.
+        const nc = [...crypto.getRandomValues(new Uint8Array(4))].map(x => x.toString(16).padStart(2, '0')).join('').toUpperCase();
         try { await Api.setTeamCode(t.id, nc); U.toast('New code: ' + nc); } catch (e) { fail(e); }
         close(); C.settingsSheet({ slug, draft: d }); },
       save: async () => { const d = readDraft();

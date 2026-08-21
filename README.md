@@ -18,6 +18,8 @@ results for our softball and soccer teams. Static site on GitHub Pages + Supabas
 - `node schedule_lib.test.js` — pure-logic tests.
 - `node store.test.js` — store/queue tests.
 - `python -m http.server 8080` then `http://localhost:8080/?mock=1&team=softball&c=WOLF26` (or `?mock=coach`).
+  The mock enforces invite codes the way the RLS policies do, so a bare `?mock=1` (no `c=`) is the
+  read-only view a parent without the link gets. Codes: softball `WOLF26`, soccer `THUN26`.
 - DB changes: see `migrations/README.md`. `schema.sql` is the fresh schema; `tools/validate_sql.sh` checks both with Docker.
 
 The 2026 batting-stats viewer that used to live here was retired 2026-08-18; it remains in git history.

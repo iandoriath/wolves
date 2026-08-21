@@ -16,7 +16,9 @@ const teams = [
 ];
 const names = ['Avery', 'Brooke', 'Charlie', 'Dana', 'Emery', 'Frankie', 'Grace', 'Harper', 'Indigo', 'Jordan', 'Kai', 'Lena', 'Morgan', 'Nora', 'Olive', 'Piper', 'Quinn'];
 const players = names.map((n, i) => ({ id: i + 1, team_id: 1, first_name: n, last_initial: i % 5 === 0 ? 'B' : null, active: i !== 16 }));
-players.push({ id: 21, team_id: 2, first_name: 'Avery', last_initial: null, active: true },   // Avery plays both teams
+// Avery plays both teams — the softball Avery is "Avery B.", so give this row the same
+// initial or the two-team chips read "Avery · Avery B." for one child.
+players.push({ id: 21, team_id: 2, first_name: 'Avery', last_initial: 'B', active: true },
   ...['Ben', 'Cleo', 'Dev', 'Ella', 'Finn', 'Gus', 'Hana', 'Ivy'].map((n, i) => ({ id: 22 + i, team_id: 2, first_name: n, last_initial: null, active: true })));
 const contacts = [{ player_id: 1, parent_name: 'Sam Avery', phone: '555-0101', email: 'sam@example.com', notes: '' },
   { player_id: 2, parent_name: 'Pat Brooke', phone: '555-0102', email: '', notes: 'Allergic to peanuts' }];
@@ -61,17 +63,25 @@ const secrets = [{ team_id: 1, code: 'WOLF26' }, { team_id: 2, code: 'THUN26' }]
 const delay = (v) => new Promise(r => setTimeout(() => r(v), 120));
 const clone = (v) => JSON.parse(JSON.stringify(v));
 const isCoach = () => globalThis.MOCK_MODE === 'coach';
-const bundle = (t) => ({ team: clone(t),
-  players: clone(players.filter(p => p.team_id === t.id)).sort((a, b) => a.first_name.localeCompare(b.first_name) || (a.last_initial || '').localeCompare(b.last_initial || '')),
+// The codes this "device" is carrying, exactly as api.js's init() collects them from
+// Store.codes. Without them the mock has to behave like the real RLS gate (§4.2) or
+// ?mock=1 is a demo of a screen no parent ever sees.
+let held = new Set();
+const codeOf = (t) => String(secrets.find(s => s.team_id === t.id)?.code || '').toUpperCase();
+const canRead = (t) => isCoach() || held.has(codeOf(t));
+// teams / events / polls / poll_slots are `read_public`; roster, RSVPs, claims, votes,
+// posts and contacts all need the team code (or a signed-in coach).
+const bundle = (t) => { const open = canRead(t); return { team: clone(t),
+  players: open ? clone(players.filter(p => p.team_id === t.id)).sort((a, b) => a.first_name.localeCompare(b.first_name) || (a.last_initial || '').localeCompare(b.last_initial || '')) : [],
   contacts: isCoach() ? clone(contacts.filter(c => players.some(p => p.id === c.player_id && p.team_id === t.id))) : [],
   events: clone(events.filter(e => e.team_id === t.id)),
-  rsvps: clone(rsvps.filter(r => events.some(e => e.id === r.event_id && e.team_id === t.id))),
-  claims: clone(claims.filter(c => events.some(e => e.id === c.event_id && e.team_id === t.id))),
+  rsvps: open ? clone(rsvps.filter(r => events.some(e => e.id === r.event_id && e.team_id === t.id))) : [],
+  claims: open ? clone(claims.filter(c => events.some(e => e.id === c.event_id && e.team_id === t.id))) : [],
   polls: clone(polls.filter(p => p.team_id === t.id)),
   slots: clone(slots.filter(s => polls.some(p => p.id === s.poll_id && p.team_id === t.id))),
-  votes: clone(votes.filter(v => slots.some(s => s.id === v.slot_id && polls.some(p => p.id === s.poll_id && p.team_id === t.id)))),
-  posts: clone(posts.filter(p => p.team_id === t.id)).sort((a, b) => b.created_at.localeCompare(a.created_at)),
-  fetchedAt: new Date().toISOString() });
+  votes: open ? clone(votes.filter(v => slots.some(s => s.id === v.slot_id && polls.some(p => p.id === s.poll_id && p.team_id === t.id)))) : [],
+  posts: open ? clone(posts.filter(p => p.team_id === t.id)).sort((a, b) => b.created_at.localeCompare(a.created_at)) : [],
+  fetchedAt: new Date().toISOString() }; };
 const upsertBy = (arr, keyFn, row) => { const i = arr.findIndex(x => keyFn(x) === keyFn(row)); if (i >= 0) arr[i] = { ...arr[i], ...row }; else arr.push(row); return clone(row); };
 const removeBy = (arr, pred) => { for (let i = arr.length - 1; i >= 0; i--) if (pred(arr[i])) arr.splice(i, 1); return null; };
 const saveMock = (arr, row, defaultsFn) => {
@@ -86,7 +96,7 @@ const saveMock = (arr, row, defaultsFn) => {
 };
 
 globalThis.Api = {
-  init() {},
+  init(codes = []) { held = new Set((codes || []).filter(Boolean).map(c => String(c).trim().toUpperCase())); },
   listTeams: () => delay(clone(teams.map(({ id, slug, name, emoji, color }) => ({ id, slug, name, emoji, color })))),
   loadTeam: (slug) => { const t = teams.find(x => x.slug === slug); if (!t) return Promise.reject(new Error('no team ' + slug)); return delay(bundle(t)); },
   upsertRsvp: ({ event_id, player_id, status, note = '' }) => delay([upsertBy(rsvps, r => `${r.event_id}:${r.player_id}`, { event_id, player_id, status, note, updated_at: nowIso })]),
