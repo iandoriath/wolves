@@ -3,6 +3,10 @@
 The site has no server; schema changes are pasted into Supabase once by the coach.
 
 ## 0002_team_app.sql (team app v2)
+**Apply this only together with deploying the `team-app` branch (right before or right after):
+it code-gates roster and RSVP reads that the current site fetches anonymously. (The site has no
+events yet, so the brief gap is harmless, but don't apply it days early.)**
+
 1. Supabase dashboard → SQL editor → New query → paste the whole file → Run. Safe to re-run.
 2. Read the invite codes:
    ```sql
@@ -14,7 +18,7 @@ The site has no server; schema changes are pasted into Supabase once by the coac
    URL=https://vooksccncttyttuyahpp.supabase.co; ANON=<anon key>; CODE=<softball code>
    curl -s -H "apikey: $ANON" "$URL/rest/v1/players?select=id&limit=1"                      # expect: []
    curl -s -H "apikey: $ANON" -H "x-team-codes: $CODE" "$URL/rest/v1/players?select=id&limit=1"   # expect: [{"id":…}]
-   curl -s -H "apikey: $ANON" "$URL/rest/v1/events?select=id&limit=1"                        # expect: [] or rows (public)
+   curl -s -H "apikey: $ANON" "$URL/rest/v1/events?select=id&limit=1"                        # expect: rows (events are public)
    ```
    If the second call also returns `[]`, the `x-team-codes` header is not reaching Postgres —
    stop and use the documented fallback (spec §4.2: anonymous sign-in + `claim_team` RPC).

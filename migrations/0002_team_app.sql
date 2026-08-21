@@ -17,10 +17,10 @@ create table if not exists team_secrets (
   code text unique not null
 );
 insert into team_secrets (team_id, code)
-  select id, upper(substr(md5(random()::text), 1, 6)) from teams
+  select id, upper(encode(gen_random_bytes(4), 'hex')) from teams
   on conflict do nothing;
 create or replace function request_team_codes() returns text[]
-language plpgsql stable as $$
+language plpgsql stable set search_path = public as $$
 declare h text;
 begin
   begin
@@ -58,7 +58,7 @@ create table if not exists posts (
   created_at timestamptz not null default now()
 );
 do $$ begin
-  if exists (select 1 from information_schema.columns where table_name = 'teams' and column_name = 'announcement') then
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'teams' and column_name = 'announcement') then
     insert into posts (team_id, body, pinned)
       select id, announcement, true from teams
       where coalesce(announcement, '') <> ''
@@ -85,7 +85,7 @@ alter table events
 alter table events drop constraint if exists events_status_check;
 alter table events add constraint events_status_check check (status in ('scheduled','tentative','cancelled'));
 do $$ begin
-  if exists (select 1 from information_schema.columns where table_name = 'events' and column_name = 'cancelled') then
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'events' and column_name = 'cancelled') then
     update events set status = 'cancelled' where cancelled;
     alter table events drop column cancelled;
   end if;
@@ -108,7 +108,7 @@ create table if not exists player_contacts (
 );
 
 -- 7. triggers
-create or replace function set_updated_at() returns trigger language plpgsql as $$
+create or replace function set_updated_at() returns trigger language plpgsql set search_path = public as $$
 begin new.updated_at = now(); return new; end $$;
 drop trigger if exists events_updated_at on events;
 create trigger events_updated_at before update on events for each row execute function set_updated_at();
@@ -116,10 +116,18 @@ drop trigger if exists rsvps_updated_at on rsvps;
 create trigger rsvps_updated_at before insert or update on rsvps for each row execute function set_updated_at();
 
 -- 8. RLS
+alter table teams enable row level security;
+alter table players enable row level security;
+alter table player_contacts enable row level security;
+alter table events enable row level security;
+alter table rsvps enable row level security;
+alter table volunteer_claims enable row level security;
+alter table polls enable row level security;
+alter table poll_slots enable row level security;
+alter table poll_votes enable row level security;
 alter table posts enable row level security;
 alter table team_secrets enable row level security;
 alter table coaches enable row level security;
-alter table player_contacts enable row level security;
 
 drop policy if exists read_all on teams;           drop policy if exists read_all on players;
 drop policy if exists read_all on events;          drop policy if exists read_all on rsvps;

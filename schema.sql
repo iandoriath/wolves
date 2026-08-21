@@ -54,7 +54,7 @@ create table rsvps (
   event_id bigint not null references events(id) on delete cascade,
   player_id bigint not null references players(id) on delete cascade,
   status text not null check (status in ('going','maybe','out')),
-  note text not null default '' check (char_length(note) <= 80),
+  note text not null default '' constraint rsvps_note_len check (char_length(note) <= 80),
   updated_at timestamptz not null default now(),
   primary key (event_id, player_id)
 );
@@ -95,7 +95,7 @@ create table team_secrets (
 create table coaches (email text primary key);
 
 -- ---------- helpers ----------
-create or replace function set_updated_at() returns trigger language plpgsql as $$
+create or replace function set_updated_at() returns trigger language plpgsql set search_path = public as $$
 begin new.updated_at = now(); return new; end $$;
 create trigger events_updated_at before update on events for each row execute function set_updated_at();
 create trigger rsvps_updated_at before insert or update on rsvps for each row execute function set_updated_at();
@@ -107,7 +107,7 @@ language sql stable security definer set search_path = public as $$
 $$;
 
 create or replace function request_team_codes() returns text[]
-language plpgsql stable as $$
+language plpgsql stable set search_path = public as $$
 declare h text;
 begin
   begin
@@ -178,4 +178,4 @@ insert into teams (slug, name, emoji, min_players, default_volunteer_roles) valu
   ('softball', 'SAA 10U Wolves', '🥎', 8, '{Snacks}'),
   ('soccer', 'Soccer', '⚽', 7, '{}');
 insert into team_secrets (team_id, code)
-  select id, upper(substr(md5(random()::text), 1, 6)) from teams;
+  select id, upper(encode(gen_random_bytes(4), 'hex')) from teams;
