@@ -200,5 +200,77 @@
     : `claim:${op.event_id}:${op.role}`;           // claim + unclaim share a key
   L.coalescePending = (queue, op) => [...queue.filter(o => L.opKey(o) !== L.opKey(op)), op];
 
+  // ---------- weekly repeat ----------
+  L.addDaysLocal = (iso, tz, days) => {
+    const z = L.utcToZoned(iso, tz);
+    const dt = new Date(Date.UTC(z.y, z.m - 1, z.d + days));
+    return L.zonedToUtc({ y: dt.getUTCFullYear(), m: dt.getUTCMonth() + 1, d: dt.getUTCDate(), hh: z.hh, mm: z.mm }, tz);
+  };
+  L.expandWeekly = (firstIso, tz, { count, until, everyWeeks = 1 } = {}) => {
+    const out = [];
+    const max = Math.min(count || 60, 60);
+    let cur = firstIso;
+    while (out.length < max) {
+      if (until && T(cur) > T(until)) break;
+      out.push(new Date(cur).toISOString());
+      cur = L.addDaysLocal(cur, tz, 7 * everyWeeks);
+    }
+    return out;
+  };
+
+  // ---------- links ----------
+  L.eventLink = (origin, slug, id) => `${origin}/?team=${encodeURIComponent(slug)}&event=${id}`;
+  L.teamLink = (origin, slug, code) => `${origin}/?team=${encodeURIComponent(slug)}&c=${encodeURIComponent(code)}`;
+  L.coParentLink = (origin, kids, pairs) => `${origin}/?kids=${kids.join(',')}`
+    + (pairs.length ? `&c=${pairs.map(p => `${encodeURIComponent(p.slug)}:${encodeURIComponent(p.code)}`).join(',')}` : '');
+  L.parseCodeParam = (str) => {
+    const s = String(str || '').trim();
+    if (!s) return { single: null, pairs: [] };
+    if (!s.includes(':')) return { single: s.toUpperCase(), pairs: [] };
+    return { single: null, pairs: s.split(',').map(x => x.split(':')).filter(x => x.length === 2 && x[0] && x[1])
+      .map(([slug, code]) => ({ slug: slug.trim(), code: code.trim().toUpperCase() })) };
+  };
+  L.mapsUrl = (location, isIOS) => isIOS
+    ? `https://maps.apple.com/?q=${encodeURIComponent(location)}`
+    : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}`;
+  const icsStamp = (iso) => new Date(iso).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+  L.icsStamp = icsStamp;
+  L.googleCalUrl = (e, team) => {
+    const q = new URLSearchParams({ action: 'TEMPLATE', text: `${team.emoji} ${team.name} ${L.eventTitle(e)}`.trim(),
+      dates: `${icsStamp(e.starts_at)}/${icsStamp(L.eventEnd(e, team))}`, location: e.location || '', details: e.notes || '' });
+    return `https://calendar.google.com/calendar/render?${q.toString().replace(/\+/g, '%20')}`;
+  };
+
+  // ---------- composers (plain text for share sheet / sms) ----------
+  L.eventLine = (team, e) => {
+    const tz = team.tz;
+    const when = `${L.fmtDay(e.starts_at, tz)} ${e.time_tbd ? '(time TBD)' : 'at ' + L.fmtTime(e.starts_at, tz)}`;
+    return `${team.emoji} ${team.name} — ${L.eventTitle(e)}, ${when}${e.location ? ' @ ' + e.location : ''}`;
+  };
+  L.composeNudge = ({ team, event, silentNames = [], openRoles = [], link }) => {
+    const ab = L.arriveBy(event, team);
+    return [L.eventLine(team, event),
+      ab ? `Arrive by ${L.fmtTime(ab, team.tz)}.` : null,
+      silentNames.length ? `Still need an RSVP from: ${silentNames.join(', ')}.` : null,
+      openRoles.length ? `Volunteer spots open: ${openRoles.join(', ')}.` : null,
+      `RSVP here: ${link}`].filter(Boolean).join('\n');
+  };
+  L.composeCancel = ({ team, event, note, link }) => `CANCELLED: ${L.eventLine(team, event)}${note ? '\n' + note : ''}\n${link}`;
+  L.composeTentative = ({ team, event, note, link }) =>
+    `Heads up — ${L.eventLine(team, event)} is weather-pending.${note ? ' ' + note : ''}\nCheck here for updates: ${link}`;
+  L.composeReschedule = ({ team, event, oldStart, link }) => {
+    const tz = team.tz;
+    return `MOVED: ${L.eventTitle(event)} was ${L.fmtDay(oldStart, tz)} ${L.fmtTime(oldStart, tz)} → now ${L.fmtDay(event.starts_at, tz)} ${L.fmtTime(event.starts_at, tz)}${event.location ? ' @ ' + event.location : ''}.\nPlease RSVP again: ${link}`;
+  };
+  L.composeAnnouncement = ({ team, body, link }) => `${team.emoji} ${team.name}: ${body}\n${link}`;
+  L.composeEventShare = ({ team, event, link }) => `${L.eventLine(team, event)}${event.notes ? '\n' + event.notes : ''}\n${link}`;
+
+  // ---------- roster paste ----------
+  L.parseRosterPaste = (text) => String(text || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean).map(line => {
+    const [first, ...rest] = line.split(/\s+/);
+    const initial = rest.length ? rest[0].replace(/[^A-Za-z]/g, '').charAt(0).toUpperCase() : '';
+    return { first_name: first.replace(/[.,]+$/, ''), last_initial: initial || null };
+  });
+
   globalThis.ScheduleLib = L;
 })();

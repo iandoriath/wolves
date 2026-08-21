@@ -166,5 +166,51 @@ eq(q3.map(o => [o.kind, o.status || o.choice]), [['vote', 'yes'], ['rsvp', 'out'
 eq(L.opKey({ kind: 'claim', event_id: 1, role: 'Snacks' }), 'claim:1:Snacks', 'claim key');
 eq(L.opKey({ kind: 'unclaim', event_id: 1, role: 'Snacks' }), 'claim:1:Snacks', 'unclaim shares claim key');
 
+// --- weekly repeat across DST end (Nov 1 2026, America/New_York): wall time stays 5:30 PM
+const reps = L.expandWeekly('2026-10-20T21:30:00Z' /* Tue Oct 20 5:30 PM EDT */, TZ, { count: 4 });
+eq(reps, ['2026-10-20T21:30:00.000Z', '2026-10-27T21:30:00.000Z', '2026-11-03T22:30:00.000Z', '2026-11-10T22:30:00.000Z'], 'expandWeekly DST-safe');
+eq(reps.map(r => L.fmtTime(r, TZ)), ['5:30 PM', '5:30 PM', '5:30 PM', '5:30 PM'], 'same wall time');
+eq(L.expandWeekly('2026-05-05T22:00:00Z', TZ, { until: '2026-05-20T03:59:59Z' }), ['2026-05-05T22:00:00.000Z', '2026-05-12T22:00:00.000Z', '2026-05-19T22:00:00.000Z'], 'expandWeekly until');
+eq(L.expandWeekly('2026-05-05T22:00:00Z', TZ, { count: 2, everyWeeks: 2 }), ['2026-05-05T22:00:00.000Z', '2026-05-19T22:00:00.000Z'], 'every 2 weeks');
+eq(L.expandWeekly('2026-05-05T22:00:00Z', TZ, {}).length, 60, 'hard cap without count/until');
+eq(L.addDaysLocal('2026-10-31T21:30:00Z', TZ, 1), '2026-11-01T22:30:00.000Z', 'addDaysLocal crosses DST end');
+
+// --- links
+const O = 'https://wolves.glorbnorb.com';
+eq(L.eventLink(O, 'softball', 12), 'https://wolves.glorbnorb.com/?team=softball&event=12', 'eventLink');
+eq(L.teamLink(O, 'softball', 'AB12CD'), 'https://wolves.glorbnorb.com/?team=softball&c=AB12CD', 'teamLink');
+eq(L.coParentLink(O, [12, 34], [{ slug: 'softball', code: 'AB12CD' }, { slug: 'soccer', code: 'ZZ99YY' }]),
+  'https://wolves.glorbnorb.com/?kids=12,34&c=softball:AB12CD,soccer:ZZ99YY', 'coParentLink');
+eq(L.coParentLink(O, [12], []), 'https://wolves.glorbnorb.com/?kids=12', 'coParentLink no codes');
+eq(L.parseCodeParam('ab12cd'), { single: 'AB12CD', pairs: [] }, 'parseCodeParam single');
+eq(L.parseCodeParam('softball:ab12cd,soccer:zz99yy'), { single: null, pairs: [{ slug: 'softball', code: 'AB12CD' }, { slug: 'soccer', code: 'ZZ99YY' }] }, 'parseCodeParam pairs');
+eq(L.parseCodeParam(''), { single: null, pairs: [] }, 'parseCodeParam empty');
+eq(L.mapsUrl('Memorial Park Field 3', true), 'https://maps.apple.com/?q=Memorial%20Park%20Field%203', 'apple maps');
+eq(L.mapsUrl('Memorial Park Field 3', false), 'https://www.google.com/maps/search/?api=1&query=Memorial%20Park%20Field%203', 'google maps');
+const gcal = L.googleCalUrl({ id: 1, kind: 'game', opponent: 'Tigers', home: true, starts_at: '2026-05-02T14:00:00Z', location: 'Memorial Park', notes: 'Wear white' }, team);
+ok(gcal.startsWith('https://calendar.google.com/calendar/render?action=TEMPLATE&text=') && gcal.includes('dates=20260502T140000Z%2F20260502T153000Z') && gcal.includes('location=Memorial%20Park'), 'googleCalUrl');
+
+// --- composers
+const evX = { id: 5, kind: 'game', opponent: 'Tigers', home: false, starts_at: '2026-05-02T14:00:00Z', location: 'Riverside Field 2', status: 'scheduled', notes: 'Wear white' };
+const link = L.eventLink(O, 'softball', 5);
+eq(L.eventLine(team, evX), '🥎 SAA 10U Wolves — @ Tigers, Sat, May 2 at 10:00 AM @ Riverside Field 2', 'eventLine');
+eq(L.composeNudge({ team, event: evX, silentNames: ['Gia', 'Zoe'], openRoles: ['Snacks'], link }),
+  '🥎 SAA 10U Wolves — @ Tigers, Sat, May 2 at 10:00 AM @ Riverside Field 2\nArrive by 9:30 AM.\nStill need an RSVP from: Gia, Zoe.\nVolunteer spots open: Snacks.\nRSVP here: ' + link, 'composeNudge');
+eq(L.composeNudge({ team, event: { ...evX, kind: 'practice' }, silentNames: [], openRoles: [], link }),
+  '🥎 SAA 10U Wolves — Practice, Sat, May 2 at 10:00 AM @ Riverside Field 2\nRSVP here: ' + link, 'composeNudge minimal');
+eq(L.composeCancel({ team, event: evX, note: 'Field flooded', link }), 'CANCELLED: 🥎 SAA 10U Wolves — @ Tigers, Sat, May 2 at 10:00 AM @ Riverside Field 2\nField flooded\n' + link, 'composeCancel');
+eq(L.composeTentative({ team, event: evX, note: 'Field check at 8, decision by 8:30', link }), 'Heads up — 🥎 SAA 10U Wolves — @ Tigers, Sat, May 2 at 10:00 AM @ Riverside Field 2 is weather-pending. Field check at 8, decision by 8:30\nCheck here for updates: ' + link, 'composeTentative');
+eq(L.composeReschedule({ team, event: { ...evX, starts_at: '2026-05-03T18:00:00Z' }, oldStart: '2026-05-02T14:00:00Z', link }),
+  'MOVED: @ Tigers was Sat, May 2 10:00 AM → now Sun, May 3 2:00 PM @ Riverside Field 2.\nPlease RSVP again: ' + link, 'composeReschedule');
+eq(L.composeAnnouncement({ team, body: 'Picture day forms due Friday', link: O + '/?team=softball' }), '🥎 SAA 10U Wolves: Picture day forms due Friday\n' + O + '/?team=softball', 'composeAnnouncement');
+eq(L.composeEventShare({ team, event: evX, link }), '🥎 SAA 10U Wolves — @ Tigers, Sat, May 2 at 10:00 AM @ Riverside Field 2\nWear white\n' + link, 'composeEventShare');
+eq(L.eventLine(team, { ...evX, time_tbd: true, location: '' }), '🥎 SAA 10U Wolves — @ Tigers, Sat, May 2 (time TBD)', 'eventLine TBD no location');
+
+// --- roster paste
+eq(L.parseRosterPaste('Kate B.\nSam\n  Zoe Brown \n\nMia b'), [
+  { first_name: 'Kate', last_initial: 'B' }, { first_name: 'Sam', last_initial: null },
+  { first_name: 'Zoe', last_initial: 'B' }, { first_name: 'Mia', last_initial: 'B' }], 'parseRosterPaste');
+eq(L.parseRosterPaste(''), [], 'parseRosterPaste empty');
+
 console.log(fails ? `${fails}/${count} FAILURES` : `ALL PASS (${count})`);
 process.exit(fails ? 1 : 0);
