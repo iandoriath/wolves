@@ -30,7 +30,7 @@
   const hmOf = (iso, tz) => iso ? L.toLocalInput(iso, tz).slice(11) : '';
   const hmLabel = (hm) => L.fmtTime(`2000-01-01T${hm}:00Z`, 'UTC');          // '17:30' → '5:30 PM'
   const whenHtml = (id, { dayLabel = 'When', time = '', chips = [], focusTime = false } = {}) => `<div class="field"><label>${U.esc(dayLabel)}</label><div data-picker="${id}"></div></div>
-    <div class="field"><label for="${id}-time">Time</label><input id="${id}-time" type="time" step="300" value="${U.esc(time)}"${focusTime ? ' autofocus' : ''}>${chips.length ? `<div class="chips" data-times="${id}">${chips.map(t => `<button type="button" class="chip" data-time="${U.esc(t)}" aria-pressed="false">${U.esc(hmLabel(t))}</button>`).join('')}</div>` : ''}</div>`;
+    <div class="field"><label for="${id}-time">Time</label><input id="${id}-time" type="time" step="900" value="${U.esc(time)}"${focusTime ? ' autofocus' : ''}>${chips.length ? `<div class="chips" data-times="${id}">${chips.map(t => `<button type="button" class="chip" data-time="${U.esc(t)}" aria-pressed="false">${U.esc(hmLabel(t))}</button>`).join('')}</div>` : ''}</div>`;
   const wireWhen = (root, id, { tz, events, value = null, onChange }) => {
     const input = root.querySelector(`#${id}-time`), chipsBox = root.querySelector(`[data-times="${id}"]`);
     const chips = () => [...(chipsBox?.querySelectorAll('.chip') || [])];
@@ -259,7 +259,7 @@
       for (const k of [...times.keys()]) if (!days.includes(k)) times.delete(k);
       days.forEach((k, i) => { if (!times.has(k)) times.set(k, (i > 0 && times.get(days[i - 1])) || days.slice(i + 1).map(d => times.get(d)).find(Boolean) || usual); });
       slotsEl.innerHTML = days.length
-        ? days.map(k => `<div class="slot-row"><b>${U.esc(L.fmtKey(k))}</b><input type="time" step="300" value="${U.esc(times.get(k))}" data-slot-time="${U.esc(k)}" aria-label="Time on ${U.esc(L.fmtKey(k))}"><button type="button" class="btn btn-ghost" data-act="drop" data-key="${U.esc(k)}" aria-label="Remove ${U.esc(L.fmtKey(k))}">${U.icon('x')}</button></div>`).join('')
+        ? days.map(k => `<div class="slot-row"><b>${U.esc(L.fmtKey(k))}</b><input type="time" step="900" value="${U.esc(times.get(k))}" data-slot-time="${U.esc(k)}" aria-label="Time on ${U.esc(L.fmtKey(k))}"><button type="button" class="btn btn-ghost" data-act="drop" data-key="${U.esc(k)}" aria-label="Remove ${U.esc(L.fmtKey(k))}">${U.icon('x')}</button></div>`).join('')
         : '<p class="tiny muted" style="margin:0 0 8px">Pick at least 2 days above — each gets its own time.</p>';
     };
     const picker = U.mountDatePicker(root.querySelector('[data-picker="pl"]'), { tz, events: b.events, multi: true, max: 6, onChange: renderRows });
