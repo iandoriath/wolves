@@ -336,15 +336,12 @@
   // A month cell is ~37px of usable width, so the dot time is squeezed hard:
   // "10:00 AM" → "10a", "5:30 PM" → "5:30p". Longer than that and the cell ellipsises it.
   const dotTime = (iso, tz) => L.fmtTime(iso, tz).replace(':00', '').replace(/\s/, '').toLowerCase().replace(/m$/, '');
-  // A cell key is a plain calendar date, so read it back at noon UTC in UTC —
-  // no zone shifts the day, and the label says "Sat, Aug 22" instead of "2026-08-22".
-  const cellLabel = (key) => L.fmtDay(key + 'T12:00:00Z', 'UTC');
   // The caller stamps each event with `_tz` (its team's tz) before merging teams so a
   // dot can format its own time; `colorFor(event)` maps an event to its team colour.
   U.monthGrid = (grid, { selectedKey, colorFor, teamColorFor } = {}) => {
     const color = colorFor || teamColorFor || (() => 'var(--team)');
     const dows = ['S', 'M', 'T', 'W', 'T', 'F', 'S'].map(d => `<div class="dow">${d}</div>`).join('');
-    const cells = grid.weeks.flat().map(c => `<button type="button" class="month-cell ${c.inMonth ? '' : 'out'} ${c.isToday ? 'today' : ''} ${c.key === selectedKey ? 'sel' : ''}" ${U.dataAttrs({ action: 'month-day', key: c.key })} aria-label="${U.esc(cellLabel(c.key))}${c.events.length ? `, ${c.events.length} event${c.events.length > 1 ? 's' : ''}` : ''}"${c.isToday ? ' aria-current="date"' : ''}${c.key === selectedKey ? ' aria-pressed="true"' : ''}>
+    const cells = grid.weeks.flat().map(c => `<button type="button" class="month-cell ${c.inMonth ? '' : 'out'} ${c.isToday ? 'today' : ''} ${c.key === selectedKey ? 'sel' : ''}" ${U.dataAttrs({ action: 'month-day', key: c.key })} aria-label="${U.esc(L.fmtKey(c.key))}${c.events.length ? `, ${c.events.length} event${c.events.length > 1 ? 's' : ''}` : ''}"${c.isToday ? ' aria-current="date"' : ''}${c.key === selectedKey ? ' aria-pressed="true"' : ''}>
       <div class="d">${c.d}</div>${c.events.slice(0, 2).map(e => `<div class="month-dot ${e.status === 'cancelled' ? 'cancelled' : ''}" style="background:${U.esc(color(e))}">${e.kind === 'game' ? 'G' : e.kind === 'practice' ? 'P' : '•'}${e.time_tbd ? '' : ' ' + U.esc(dotTime(e.starts_at, e._tz || 'America/New_York'))}</div>`).join('')}${c.events.length > 2 ? `<div class="tiny muted" style="text-align:center">+${c.events.length - 2}</div>` : ''}</button>`).join('');
     return `<div class="month"><div class="month-head"><button class="btn btn-ghost btn-sm" data-action="month-nav" data-dir="-1" aria-label="Previous month">${U.icon('arrow-left')}</button><span>${U.esc(grid.label)}</span><button class="btn btn-ghost btn-sm" data-action="month-nav" data-dir="1" aria-label="Next month">${U.icon('arrow-right')}</button></div><div class="month-grid">${dows}${cells}</div></div>`;
   };
@@ -353,10 +350,11 @@
   // Mounts a compact month calendar INTO `el` — the page's month view above stays as it is.
   // Single mode holds one 'YYYY-MM-DD' key, multi mode a Set of them (capped at `max`).
   // Each day shows up to three pips for the events already on it (game = team colour,
-  // practice = ink-3, other = maybe, cancelled faded), so the coach sees what a day holds
-  // before picking it. It listens on `el` itself and uses its own data-pick-* attributes,
+  // practice = ink-3, other = maybe, cancelled a hollow ring), so the coach sees what a day
+  // holds before picking it. It listens on `el` itself and uses its own data-pick-* attributes,
   // so the page's data-action="month-day"/"month-nav" delegation never sees a tap in here.
-  // Returns { get(), set(value), setMonth(y, m), destroy() }; set() does not fire onChange.
+  // Returns { get(), set(value), setMonth(y, m), destroy() }. onChange fires only for a tap on a
+  // day — never on mount, set() or setMonth() — so a caller can finish its own setup before it runs.
   U.mountDatePicker = (el, opts = {}) => {
     const { tz = 'America/New_York', events = [], colorFor, multi = false, onChange } = opts;
     const max = opts.max ?? Infinity;
@@ -368,19 +366,23 @@
     const startMonth = () => { const f = firstSel(); if (f) return monthOf(f); const z = L.utcToZoned(new Date().toISOString(), tz); return { y: z.y, m: z.m }; };
     let { y, m } = opts.month || startMonth();
     const isSel = (key) => multi ? values.has(key) : key === value;
+    // The head (arrows + month label) is built once and kept: the label is a live region, and a
+    // region replaced on every render is a brand-new node to a screen reader, not an update.
+    el.innerHTML = `<div class="month compact"><div class="month-head"><button type="button" class="btn btn-ghost" data-pick-nav="-1" aria-label="Previous month">${U.icon('arrow-left')}</button><span aria-live="polite" data-pick-label></span><button type="button" class="btn btn-ghost" data-pick-nav="1" aria-label="Next month">${U.icon('arrow-right')}</button></div><div class="month-grid" role="group" aria-label="${multi ? 'Pick days' : 'Pick a day'}" data-pick-grid></div></div>`;
+    const labelEl = el.querySelector('[data-pick-label]'), gridEl = el.querySelector('[data-pick-grid]');
     const render = () => {
-      // innerHTML replaces the focused button, so a keyboard user lands back on the same day/arrow.
-      const f = el.contains(document.activeElement) ? document.activeElement : null;
-      const refocus = f?.dataset.pickDay ? `[data-pick-day="${f.dataset.pickDay}"]` : f?.dataset.pickNav ? `[data-pick-nav="${f.dataset.pickNav}"]` : null;
+      // innerHTML replaces the focused day button, so a keyboard user lands back on the same day.
+      const focused = gridEl.contains(document.activeElement) ? document.activeElement.dataset.pickDay : null;
       const grid = L.monthGrid(y, m, events, tz, new Date());
       const dows = ['S', 'M', 'T', 'W', 'T', 'F', 'S'].map(d => `<div class="dow" aria-hidden="true">${d}</div>`).join('');
       const cells = grid.weeks.flat().map(c => {
         const sel = isSel(c.key), n = c.events.length;
         const pips = c.events.slice(0, 3).map(e => `<i class="month-pip ${e.status === 'cancelled' ? 'cancelled' : ''}" style="--pip:${U.esc(pipColor(e))}"></i>`).join('');
-        return `<button type="button" class="month-cell ${c.inMonth ? '' : 'out'} ${c.isToday ? 'today' : ''} ${sel ? 'sel' : ''}" data-pick-day="${c.key}" aria-label="${U.esc(cellLabel(c.key))}${n ? `, ${n} event${n > 1 ? 's' : ''}` : ''}" aria-pressed="${sel}"${c.isToday ? ' aria-current="date"' : ''}><span class="d">${c.d}</span><span class="month-pips">${pips}</span></button>`;
+        return `<button type="button" class="month-cell ${c.inMonth ? '' : 'out'} ${c.isToday ? 'today' : ''} ${sel ? 'sel' : ''}" data-pick-day="${c.key}" aria-label="${U.esc(L.fmtKey(c.key))}${n ? `, ${n} event${n > 1 ? 's' : ''}` : ''}" aria-pressed="${sel}"${c.isToday ? ' aria-current="date"' : ''}><span class="d">${c.d}</span><span class="month-pips">${pips}</span></button>`;
       }).join('');
-      el.innerHTML = `<div class="month compact"><div class="month-head"><button type="button" class="btn btn-ghost" data-pick-nav="-1" aria-label="Previous month">${U.icon('arrow-left')}</button><span aria-live="polite">${U.esc(grid.label)}</span><button type="button" class="btn btn-ghost" data-pick-nav="1" aria-label="Next month">${U.icon('arrow-right')}</button></div><div class="month-grid" role="group" aria-label="${multi ? 'Pick days' : 'Pick a day'}">${dows}${cells}</div></div>`;
-      if (refocus) el.querySelector(refocus)?.focus();
+      labelEl.textContent = grid.label;
+      gridEl.innerHTML = dows + cells;
+      if (focused) gridEl.querySelector(`[data-pick-day="${focused}"]`)?.focus();
     };
     const get = () => multi ? new Set(values) : value;
     const onClick = (ev) => {
@@ -390,11 +392,12 @@
       if (!day || !el.contains(day)) return;
       const key = day.dataset.pickDay;
       if (multi) {
+        // The view stays put: following a grey neighbouring-month day would hide the earlier picks
+        // (and untapping one would yank the calendar), so .out.sel marks it where it was tapped.
         if (values.has(key)) values.delete(key);
         else if (values.size >= max) { U.toast(`Up to ${max} days`); return; }
         else values.add(key);
-      } else value = key;
-      ({ y, m } = monthOf(key));             // a grey day from the neighbouring month pulls the view along
+      } else { value = key; ({ y, m } = monthOf(key)); }    // single mode follows a grey day into its month
       render(); onChange?.(get());
     };
     el.addEventListener('click', onClick);
