@@ -226,62 +226,94 @@ function pasteSheet(slug) {
   const cur = () => S.bundles[slug] || b;
   const key = (r) => `${String(r.first_name ?? '').trim().toLowerCase()}|${String(r.last_initial ?? '').trim().toLowerCase()}`;
   const lineFor = (r) => r.first_name + (r.last_initial ? ' ' + r.last_initial : '');
-  // Names already on the roster (and repeats inside one paste) are dropped rather than
-  // inserted — a second paste of the same list should be a no-op, not a duplicate roster.
+  // Three buckets. A name nobody on the roster has is inserted; a name matching an
+  // INACTIVE player reactivates that row (this is the season-rollover path — after
+  // "mark all inactive" the returning roster is entirely inactive, and skipping it as
+  // "already on the roster" would leave no way back); a name matching an ACTIVE player
+  // is skipped, as is the same name twice in one paste.
   const split = (parsed) => {
-    const known = new Set(cur().players.map(key)), seen = new Set(), fresh = [], dup = [];
+    const byKey = new Map();
+    for (const p of cur().players) {                 // an active row wins over an inactive namesake
+      const k = key(p), prev = byKey.get(k);
+      if (!prev || (!prev.active && p.active)) byKey.set(k, p);
+    }
+    const seen = new Set(), queued = [], dup = [];
     for (const r of parsed) {
       const k = key(r);
-      if (known.has(k) || seen.has(k)) dup.push(r); else { seen.add(k); fresh.push(r); }
+      if (seen.has(k)) { dup.push(r); continue; }
+      seen.add(k);
+      const match = byKey.get(k);
+      const row = { first_name: r.first_name, last_initial: r.last_initial };
+      if (!match) queued.push(row);                  // insert
+      else if (match.active) dup.push(r);            // nothing to do
+      else queued.push({ ...row, id: match.id });    // reactivate
     }
-    return { fresh, dup };
+    return { queued, dup };
   };
 
-  let rows = [], dupes = [];
-  // The textarea is the input to Preview, so it has to track `rows` — otherwise a second
+  let queue = [], dupes = [];                        // queue items carry an `id` when they reactivate
+  const counts = () => ({ add: queue.filter(x => !x.id).length, back: queue.filter(x => x.id).length });
+  const plural = (n) => (n === 1 ? '' : 's');
+  // The textarea is the input to Preview, so it has to track `queue` — otherwise a second
   // Preview after a partial failure re-parses the original list and re-adds what landed.
-  const syncTextarea = () => { ta.value = rows.map(lineFor).join('\n'); };
+  const syncTextarea = () => { ta.value = queue.map(lineFor).join('\n'); };
+  const okLabel = (retry) => {
+    const { add, back } = counts();
+    if (!queue.length) return 'Add players';
+    if (retry) return `Add ${queue.length} remaining`;
+    if (add && back) return `Add ${add} player${plural(add)} · reactivate ${back}`;
+    if (back) return `Reactivate ${back} player${plural(back)}`;
+    return `Add ${add} player${plural(add)}`;
+  };
   const paint = ({ retry = false } = {}) => {
     const chips = [
-      ...rows.map(r => `<span class="chip">${U.esc(L.displayName(r))}</span>`),
+      ...queue.map(x => `<span class="chip">${U.esc(L.displayName(x))}${x.id ? ' · reactivate' : ''}</span>`),
       ...dupes.map(r => `<span class="chip" style="opacity:.55" title="Already on the roster">${U.esc(L.displayName(r))} · on roster</span>`),
     ].join('');
-    const note = !rows.length
+    const note = !queue.length
       ? `<p class="muted">${dupes.length ? 'Everyone on that list is already on the roster.' : retry ? 'Everyone made it — nothing left to add.' : 'Nothing to add.'}</p>`
       : dupes.length ? `<p class="tiny muted" style="margin-top:6px">${dupes.length} already on the roster — skipped.</p>` : '';
     preview.innerHTML = (chips ? `<div class="chips">${chips}</div>` : '') + note;
-    okBtn.disabled = !rows.length;
-    okBtn.textContent = !rows.length ? 'Add players'
-      : retry ? `Add ${rows.length} remaining` : `Add ${rows.length} player${rows.length === 1 ? '' : 's'}`;
+    okBtn.disabled = !queue.length;
+    okBtn.textContent = okLabel(retry);
   };
   // Any edit after a preview invalidates it, so "Add players" can never insert a stale list.
   // syncTextarea() assigns .value directly, which fires no input event — the reduced list survives.
-  const invalidate = () => { rows = []; dupes = []; okBtn.disabled = true; okBtn.textContent = 'Add players'; preview.innerHTML = ''; };
+  const invalidate = () => { queue = []; dupes = []; okBtn.disabled = true; okBtn.textContent = 'Add players'; preview.innerHTML = ''; };
   ta.addEventListener('input', invalidate);
   root.querySelector('[data-cancel]').onclick = () => close();
-  root.querySelector('[data-prev]').onclick = () => { ({ fresh: rows, dup: dupes } = split(L.parseRosterPaste(ta.value))); paint(); };
-  // One insert per row with no transaction behind it, so a failure half way through
-  // leaves the earlier rows on the server. Track what actually landed, refetch so the
-  // roster shows it, and drop those rows from the list — otherwise a retry duplicates them.
+  root.querySelector('[data-prev]').onclick = () => { ({ queued: queue, dup: dupes } = split(L.parseRosterPaste(ta.value))); paint(); };
+  // One write per row with no transaction behind it, so a failure half way through leaves
+  // the earlier rows saved. Track what actually landed, refetch so the roster shows it, and
+  // drop those rows from the list — otherwise a retry duplicates the inserts.
   okBtn.onclick = async () => {
-    const recheck = split(rows);                 // the roster may have moved since Preview
-    rows = recheck.fresh; dupes = [...dupes, ...recheck.dup];
-    const n = rows.length;
+    const recheck = split(queue);                    // the roster may have moved since Preview
+    queue = recheck.queued; dupes = [...dupes, ...recheck.dup];
+    const n = queue.length;
     if (!n) { syncTextarea(); paint(); return U.toast('Already on the roster — nothing to add'); }
+    const { add, back } = counts();
     okBtn.disabled = true;
     const landed = [];
     let err = null;
-    for (const r of rows) {
-      try { await Api.savePlayer({ team_id: cur().team.id, first_name: r.first_name, last_initial: r.last_initial, active: true }); landed.push(r); }
-      catch (e) { err = e; break; }
+    for (const x of queue) {
+      try {
+        await Api.savePlayer(x.id ? { id: x.id, active: true }
+          : { team_id: cur().team.id, first_name: x.first_name, last_initial: x.last_initial, active: true });
+        landed.push(x);
+      } catch (e) { err = e; break; }
     }
     await S.fetchTeam(slug).catch(() => {});
-    if (!err) { close(); U.toast(`Added ${n} player${n === 1 ? '' : 's'}`); return; }
-    rows = rows.filter(r => !landed.includes(r));
+    if (!err) {
+      close();
+      U.toast(add && back ? `Added ${add}, reactivated ${back}`
+        : back ? `Reactivated ${back} player${plural(back)}` : `Added ${add} player${plural(add)}`);
+      return;
+    }
+    queue = queue.filter(x => !landed.includes(x));
     dupes = [];
     syncTextarea();
     paint({ retry: true });
-    U.toast(`Added ${landed.length} of ${n} — ${err?.message || err}`);
+    U.toast(`${back ? 'Saved' : 'Added'} ${landed.length} of ${n} — ${err?.message || err}`);
   };
 }
 
