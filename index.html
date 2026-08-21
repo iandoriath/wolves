@@ -1,9 +1,22 @@
 <!DOCTYPE html><html lang="en"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Team Schedules</title><link rel="stylesheet" href="site.css"></head>
-<body><main>
-  <h1>Team Schedules</h1>
-  <a class="card" style="display:block;font-size:24px;text-decoration:none;color:inherit" href="team.html?team=softball">🥎 Softball</a>
-  <a class="card" style="display:block;font-size:24px;text-decoration:none;color:inherit" href="team.html?team=soccer">⚽ Soccer</a>
-  <p class="muted"><a href="coach.html">Coach dashboard</a></p>
-</main></body></html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#2d6a4f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Wolves">
+<title>Team Schedule</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="site.css">
+<script src="config.js"></script><script src="schedule_lib.js"></script><script src="store.js"></script><script src="ui.js"></script><script src="coach_sheets.js"></script>
+<script type="module" src="api.js"></script>
+</head>
+<body>
+<div id="topbar"></div>
+<main id="app"><div class="stack"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div></main>
+<script type="module" src="home_page.js"></script>
+<script>if ('serviceWorker' in navigator && !location.search.includes('mock')) navigator.serviceWorker.register('sw.js').catch(() => {});</script>
+</body></html>

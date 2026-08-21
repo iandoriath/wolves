@@ -143,7 +143,7 @@ Client sends the header via `createClient(url, key, { global: { headers: { 'x-te
 
 Idempotent where practical (`if not exists`, `drop policy if exists`). Steps:
 1. `coaches` table; insert `idelorey@gmail.com`. `is_coach()`.
-2. `team_secrets`; insert a random 6-char code per team (`upper(substr(md5(random()::text),1,6))`). `request_team_codes()`, `team_code_ok()`, `event_team()`, `slot_team()`.
+2. `team_secrets`; insert a random 8-char code per team from pgcrypto's CSPRNG (`upper(encode(gen_random_bytes(4), 'hex'))`). `request_team_codes()`, `team_code_ok()`, `event_team()`, `slot_team()`.
 3. `teams`: add columns; drop `announcement` after moving any non-empty value into `posts` (pinned).
 4. `events`: add columns; `status` from `cancelled`; drop `cancelled`.
 5. `rsvps`: widen status check to include `maybe`; add `note`; trigger.
@@ -185,7 +185,7 @@ Existing helpers kept/adapted; new ones (all take `tz` where dates are involved;
 - `displayName(p)`; `eventTitle(e)`; `eventEnd(e, team)`; `arriveBy(e, team)`; `isNow(e, team, now)`; `isPast(e, team, now)`.
 - `nextEvent(events, team, now)` — first non-cancelled event whose end is after now.
 - `splitSchedule(events, team, now)` → `{ upcoming, past }` (upcoming includes "now" and cancelled-but-future events).
-- `groupByWeek(events, tz, now)` → `[{ label: 'This week'|'Next week'|'Week of May 11', events }]` (weeks start Monday).
+- `groupByWeek(events, tz, now)` → `[{ label: 'This week'|'Next week'|'Week of May 10', events }]` (weeks start Sunday, matching the month grid and US calendars).
 - `monthGrid(year, month, events, tz)` → 6×7 cells `{ date, inMonth, isToday, events }`.
 - `summarizeRsvps(players, rsvps, minPlayers)` → `{ going, maybe, out, silent, shortBy }` (shortBy from going only).
 - `needsAnswer(bundles, household, now)` → `[{ team, event | slot, player }]` items lacking an rsvp/vote.
@@ -204,7 +204,7 @@ Single column, max-width 600px, system font, 17px body, 44–48px targets, dark 
 
 ### 7.1 URL handling
 - `?c=CODE&team=slug` → store code for team; keep params in URL (so bookmarks retain them).
-- `?kids=12,34&c=CODE1,CODE2` → add kids to household (codes stored by resolving each kid's team after load) → render.
+- `?kids=12,34&c=softball:CODE1,soccer:CODE2` → add kids to household (codes stored per team from the `slug:code` pairs; kids resolved to teams after load) → render.
 - `?team=slug` → filter to that team; `?event=ID` → after render, scroll to and expand that event (and switch to list view).
 - `?mock=1` → `mock_api.js`.
 
@@ -224,7 +224,7 @@ Body order:
 5. **Up next** hero — relative day + big time (or "Time TBD"), title, Home/Away pill, arrive-by, location → **Directions** (Apple Maps on iOS, Google Maps elsewhere), notes, status banner (CANCELLED / ⚠️ Weather pending — `status_note` / MOVED from `rescheduled_from`), per-kid RSVP control, headcount line `7 going · 1 maybe · 2 can't · 8 no reply · need 1 more`, unfilled-role hint ("Snacks still open — Claim"), "Later today" row if another event is the same day.
 6. **Open polls**: slot rows with per-kid ✅ / 🤷 / ❌ (with text labels for a11y) and tallies.
 7. **Schedule**: header with `List | Month` toggle and `All | Games | Practices` filter chips.
-   - List: grouped by week; each row: day + time (big), title, location (short), status chip for my kid(s), badges (CANCELLED / TBD / MOVED / Weather / result pill for past), overlap marker ("overlaps Sam's game"). Tap → expands in place: full details, Directions, who's going (names by status; counts only without code), volunteer roles (Claim/Unclaim per kid), my note field ("late from soccer", ≤80), "Answered Tue 9:12 PM", Add this event to my calendar (Google link + .ics download), Share event. Coach mode: ⋯ menu (see §8).
+   - List: grouped by week; each row: day + time (big), title, location (short), status chip for my kid(s), badges (CANCELLED / TBD / MOVED / Weather / result pill for past), overlap marker ("overlaps Sam's game"). Tap → expands in place: full details, Directions, who's going (names by status; hidden entirely without the invite code — RLS returns no roster/RSVP rows, so no counts either; an "Have an invite code?" entry field lets a parent enter it, e.g. on an installed Home-Screen app whose storage is separate from Safari), volunteer roles (Claim/Unclaim per kid), my note field ("late from soccer", ≤80), "Answered Tue 9:12 PM", Add this event to my calendar (Google link + .ics download), Share event. Coach mode: ⋯ menu (see §8).
    - Month: `‹ May 2026 ›`, 7-column grid, cells with up to 2 mini pills (emoji + time) colored by team, "+N"; tap a day → that day's events render as cards beneath the grid.
    - Past: collapsed `details` with results.
 8. **Footer**: Subscribe to calendar (sheet: `webcal://` button on iOS with 2-line how-to; https URL + copy + Google "From URL" steps elsewhere; note that Google ignores alarms) · Share with my co-parent (share sheet with `coParentLink`) · Change my players · Add to Home Screen hint (dismissible; iOS instructions) · Coach link.
