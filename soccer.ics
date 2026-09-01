@@ -1,9 +1,239 @@
 BEGIN:VCALENDAR
 VERSION:2.0
-PRODID:-//wolves.glorbnorb.com//Soccer//EN
+PRODID:-//wolves.glorbnorb.com//Canada//EN
 CALSCALE:GREGORIAN
 METHOD:PUBLISH
-X-WR-CALNAME:Soccer
+X-WR-CALNAME:Canada
 X-PUBLISHED-TTL:PT1H
 REFRESH-INTERVAL;VALUE=DURATION:PT1H
+BEGIN:VEVENT
+UID:evt-7@wolves.glorbnorb.com
+DTSTAMP:20260901T172346Z
+SEQUENCE:1788283426
+LAST-MODIFIED:20260901T172346Z
+DTSTART:20260912T160000Z
+DTEND:20260912T165000Z
+SUMMARY:⚽ Canada vs England · arrive 11:00 AM
+LOCATION:Netherwood Park\, 152 Baltimore Pike\, Springfield Township\, PA 1
+ 9064
+DESCRIPTION:Arrive by 11:00 AM\nHome game\nhttps://wolves.glorbnorb.com/?te
+ am=soccer&event=7
+URL:https://wolves.glorbnorb.com/?team=soccer&event=7
+STATUS:CONFIRMED
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:⚽ Canada vs England · arrive 11:00 AM
+TRIGGER:-P1D
+END:VALARM
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:⚽ Canada vs England · arrive 11:00 AM
+TRIGGER:-PT2H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:evt-8@wolves.glorbnorb.com
+DTSTAMP:20260901T172346Z
+SEQUENCE:1788283426
+LAST-MODIFIED:20260901T172346Z
+DTSTART:20260919T160000Z
+DTEND:20260919T165000Z
+SUMMARY:⚽ Canada @ Germany · arrive 11:00 AM
+LOCATION:Netherwood Park\, 152 Baltimore Pike\, Springfield Township\, PA 1
+ 9064
+DESCRIPTION:Arrive by 11:00 AM\nAway game\nhttps://wolves.glorbnorb.com/?te
+ am=soccer&event=8
+URL:https://wolves.glorbnorb.com/?team=soccer&event=8
+STATUS:CONFIRMED
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:⚽ Canada @ Germany · arrive 11:00 AM
+TRIGGER:-P1D
+END:VALARM
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:⚽ Canada @ Germany · arrive 11:00 AM
+TRIGGER:-PT2H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:evt-9@wolves.glorbnorb.com
+DTSTAMP:20260901T172346Z
+SEQUENCE:1788283426
+LAST-MODIFIED:20260901T172346Z
+DTSTART:20260926T160000Z
+DTEND:20260926T165000Z
+SUMMARY:⚽ Canada @ Japan · arrive 11:00 AM
+LOCATION:Netherwood Park\, 152 Baltimore Pike\, Springfield Township\, PA 1
+ 9064
+DESCRIPTION:Arrive by 11:00 AM\nAway game\nhttps://wolves.glorbnorb.com/?te
+ am=soccer&event=9
+URL:https://wolves.glorbnorb.com/?team=soccer&event=9
+STATUS:CONFIRMED
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:⚽ Canada @ Japan · arrive 11:00 AM
+TRIGGER:-P1D
+END:VALARM
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:⚽ Canada @ Japan · arrive 11:00 AM
+TRIGGER:-PT2H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:evt-10@wolves.glorbnorb.com
+DTSTAMP:20260901T172346Z
+SEQUENCE:1788283426
+LAST-MODIFIED:20260901T172346Z
+DTSTART:20261003T171500Z
+DTEND:20261003T180500Z
+SUMMARY:⚽ Canada vs Germany · arrive 12:15 PM
+LOCATION:Netherwood Park\, 152 Baltimore Pike\, Springfield Township\, PA 1
+ 9064
+DESCRIPTION:Arrive by 12:15 PM\nHome game\nhttps://wolves.glorbnorb.com/?te
+ am=soccer&event=10
+URL:https://wolves.glorbnorb.com/?team=soccer&event=10
+STATUS:CONFIRMED
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:⚽ Canada vs Germany · arrive 12:15 PM
+TRIGGER:-P1D
+END:VALARM
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:⚽ Canada vs Germany · arrive 12:15 PM
+TRIGGER:-PT2H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:evt-11@wolves.glorbnorb.com
+DTSTAMP:20260901T172346Z
+SEQUENCE:1788283426
+LAST-MODIFIED:20260901T172346Z
+DTSTART:20261010T171500Z
+DTEND:20261010T180500Z
+SUMMARY:⚽ Canada vs Japan · arrive 12:15 PM
+LOCATION:Netherwood Park\, 152 Baltimore Pike\, Springfield Township\, PA 1
+ 9064
+DESCRIPTION:Arrive by 12:15 PM\nHome game\nhttps://wolves.glorbnorb.com/?te
+ am=soccer&event=11
+URL:https://wolves.glorbnorb.com/?team=soccer&event=11
+STATUS:CONFIRMED
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:⚽ Canada vs Japan · arrive 12:15 PM
+TRIGGER:-P1D
+END:VALARM
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:⚽ Canada vs Japan · arrive 12:15 PM
+TRIGGER:-PT2H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:evt-12@wolves.glorbnorb.com
+DTSTAMP:20260901T172346Z
+SEQUENCE:1788283426
+LAST-MODIFIED:20260901T172346Z
+DTSTART:20261017T160000Z
+DTEND:20261017T165000Z
+SUMMARY:⚽ Canada @ England · arrive 11:00 AM
+LOCATION:Netherwood Park\, 152 Baltimore Pike\, Springfield Township\, PA 1
+ 9064
+DESCRIPTION:Arrive by 11:00 AM\nAway game\nhttps://wolves.glorbnorb.com/?te
+ am=soccer&event=12
+URL:https://wolves.glorbnorb.com/?team=soccer&event=12
+STATUS:CONFIRMED
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:⚽ Canada @ England · arrive 11:00 AM
+TRIGGER:-P1D
+END:VALARM
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:⚽ Canada @ England · arrive 11:00 AM
+TRIGGER:-PT2H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:evt-13@wolves.glorbnorb.com
+DTSTAMP:20260901T172346Z
+SEQUENCE:1788283426
+LAST-MODIFIED:20260901T172346Z
+DTSTART:20261024T160000Z
+DTEND:20261024T165000Z
+SUMMARY:⚽ Canada vs England · arrive 11:00 AM
+LOCATION:Netherwood Park\, 152 Baltimore Pike\, Springfield Township\, PA 1
+ 9064
+DESCRIPTION:Arrive by 11:00 AM\nHome game\nhttps://wolves.glorbnorb.com/?te
+ am=soccer&event=13
+URL:https://wolves.glorbnorb.com/?team=soccer&event=13
+STATUS:CONFIRMED
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:⚽ Canada vs England · arrive 11:00 AM
+TRIGGER:-P1D
+END:VALARM
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:⚽ Canada vs England · arrive 11:00 AM
+TRIGGER:-PT2H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:evt-14@wolves.glorbnorb.com
+DTSTAMP:20260901T172346Z
+SEQUENCE:1788283426
+LAST-MODIFIED:20260901T172346Z
+DTSTART:20261031T160000Z
+DTEND:20261031T165000Z
+SUMMARY:⚽ Canada @ Japan · arrive 11:00 AM
+LOCATION:Netherwood Park\, 152 Baltimore Pike\, Springfield Township\, PA 1
+ 9064
+DESCRIPTION:Arrive by 11:00 AM\nAway game\nhttps://wolves.glorbnorb.com/?te
+ am=soccer&event=14
+URL:https://wolves.glorbnorb.com/?team=soccer&event=14
+STATUS:CONFIRMED
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:⚽ Canada @ Japan · arrive 11:00 AM
+TRIGGER:-P1D
+END:VALARM
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:⚽ Canada @ Japan · arrive 11:00 AM
+TRIGGER:-PT2H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:evt-15@wolves.glorbnorb.com
+DTSTAMP:20260901T172346Z
+SEQUENCE:1788283426
+LAST-MODIFIED:20260901T172346Z
+DTSTART;VALUE=DATE:20261107
+DTEND;VALUE=DATE:20261108
+SUMMARY:⚽ Canada vs TBD
+LOCATION:Netherwood Park\, 152 Baltimore Pike\, Springfield Township\, PA 1
+ 9064
+DESCRIPTION:Playoffs — seeding\, opponent and start time TBD.\nhttps://wo
+ lves.glorbnorb.com/?team=soccer&event=15
+URL:https://wolves.glorbnorb.com/?team=soccer&event=15
+STATUS:CONFIRMED
+END:VEVENT
+BEGIN:VEVENT
+UID:evt-16@wolves.glorbnorb.com
+DTSTAMP:20260901T172346Z
+SEQUENCE:1788283426
+LAST-MODIFIED:20260901T172346Z
+DTSTART;VALUE=DATE:20261114
+DTEND;VALUE=DATE:20261115
+SUMMARY:⚽ Canada vs TBD
+LOCATION:Netherwood Park\, 152 Baltimore Pike\, Springfield Township\, PA 1
+ 9064
+DESCRIPTION:Championship / consolation game — opponent and start time TBD
+ .\nhttps://wolves.glorbnorb.com/?team=soccer&event=16
+URL:https://wolves.glorbnorb.com/?team=soccer&event=16
+STATUS:CONFIRMED
+END:VEVENT
 END:VCALENDAR
