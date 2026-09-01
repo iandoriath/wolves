@@ -22,8 +22,13 @@
     return 60;
   };
   L.eventEnd = (e, team) => addMin(e.starts_at, L.durationMin(e, team));
-  L.arriveBy = (e, team) => (e.kind === 'game' && !e.time_tbd && (team?.arrive_early_min ?? 0) > 0)
-    ? addMin(e.starts_at, -team.arrive_early_min) : null;
+  // Games only, and never for a TBD time. The event's own arrive_early_min overrides the team's
+  // the way duration_min overrides the team duration — null inherits, and an explicit 0 on one
+  // game drops its arrive-by line without touching the rest of the team's.
+  L.arriveBy = (e, team) => {
+    const mins = e.arrive_early_min ?? team?.arrive_early_min ?? 0;
+    return (e.kind === 'game' && !e.time_tbd && mins > 0) ? addMin(e.starts_at, -mins) : null;
+  };
   L.isPast = (e, team, now) => T(L.eventEnd(e, team)) <= now.getTime();
   L.isNow = (e, team, now) => T(e.starts_at) <= now.getTime() && !L.isPast(e, team, now);
   L.nextEvent = (events, team, now) =>
@@ -75,11 +80,27 @@
     if (!m) return null;
     return L.zonedToUtc({ y: +m[1], m: +m[2], d: +m[3], hh: +(m[4] || 0), mm: +(m[5] || 0) }, tz);
   };
+  // The coach's quick-time chips: up to n distinct 'HH:MM' wall times (24h, in tz) the
+  // team actually uses — most frequent first, ties to the most recent start. Cancelled
+  // and time-TBD events say nothing about when things happen, so they don't count.
+  L.recentTimes = (events, tz, n) => {
+    const seen = new Map();                    // 'HH:MM' → { count, last }
+    for (const e of events || []) {
+      if (!e?.starts_at || e.time_tbd || e.status === 'cancelled' || Number.isNaN(T(e.starts_at))) continue;
+      const z = L.utcToZoned(e.starts_at, tz), k = `${pad(z.hh)}:${pad(z.mm)}`;
+      const s = seen.get(k) || { count: 0, last: -Infinity };
+      s.count++; s.last = Math.max(s.last, T(e.starts_at)); seen.set(k, s);
+    }
+    return [...seen].sort((a, b) => b[1].count - a[1].count || b[1].last - a[1].last).map(([k]) => k).slice(0, n ?? Infinity);
+  };
 
   // ---------- formatting ----------
   const fmt = (iso, tz, opts) => new Date(iso).toLocaleString('en-US', { timeZone: tz, ...opts });
   L.fmtTime = (iso, tz) => fmt(iso, tz, { hour: 'numeric', minute: '2-digit' });
   L.fmtDay = (iso, tz) => fmt(iso, tz, { weekday: 'short', month: 'short', day: 'numeric' });
+  // A date key ('YYYY-MM-DD') is a plain calendar day, so it is read back at noon UTC in UTC — no
+  // zone can shift the day — and labelled like fmtDay: '2026-08-22' → "Sat, Aug 22".
+  L.fmtKey = (key) => L.fmtDay(key + 'T12:00:00Z', 'UTC');
   L.fmtDayYear = (iso, tz) => fmt(iso, tz, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
   L.fmtMonthDay = (iso, tz) => fmt(iso, tz, { month: 'short', day: 'numeric' });
   L.fmtWhen = (iso, tz, e) => `${L.fmtDay(iso, tz)} · ${e?.time_tbd ? 'Time TBD' : L.fmtTime(iso, tz)}`;

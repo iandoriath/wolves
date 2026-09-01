@@ -139,6 +139,7 @@ main { max-width:600px; margin:0 auto; padding:12px 14px; }
   font-size:15px; font-weight:600;
   transition:background-color .15s ease, color .15s ease, border-color .15s ease, transform .12s var(--ease); }
 .chip.on { background:var(--team); color:var(--team-ink); border-color:var(--team); }
+.chip:disabled { opacity:.5; cursor:default; }
 
 .seg { display:inline-flex; background:var(--surface-2); border-radius:var(--r-sm); padding:3px; gap:2px; }
 .seg button { border:0; background:transparent; border-radius:9px; padding:8px 14px; min-height:44px;
@@ -277,16 +278,19 @@ main { max-width:600px; margin:0 auto; padding:12px 14px; }
 /* ---------- forms ---------- */
 .field { display:grid; gap:6px; margin-bottom:12px; }
 .field label { font-size:14px; font-weight:700; color:var(--ink-2); }
-.field input, .field select, .field textarea { min-height:46px; padding:10px 12px; border:1px solid var(--line);
+.field input, .field select, .field textarea, .slot-row input { min-height:46px; padding:10px 12px; border:1px solid var(--line);
   border-radius:var(--r-sm); background:var(--surface); color:var(--ink); font-size:16px; width:100%;
   transition:border-color .15s ease, box-shadow .15s ease; }
-.field input:focus, .field select:focus, .field textarea:focus { outline:0; border-color:var(--team-text);
+.field input:focus, .field select:focus, .field textarea:focus, .slot-row input:focus { outline:0; border-color:var(--team-text);
   box-shadow:0 0 0 3px var(--team-soft); }
+.field input:disabled, .field select:disabled, .field textarea:disabled, .slot-row input:disabled { opacity:.5; cursor:default; }
 .field select { appearance:none; -webkit-appearance:none; padding-right:38px;
   background-image:var(--caret); background-repeat:no-repeat; background-position:right 12px center; background-size:18px 18px; }
 .field textarea { min-height:90px; resize:vertical; line-height:1.4; }
 .field .tiny { color:var(--ink-3); }
-.field-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+/* Auto-flow rather than a fixed 1fr 1fr: a [data-only] field hidden for the current event kind
+   creates no track, so the field left beside it fills the row instead of sitting in half of it. */
+.field-row { display:grid; grid-auto-flow:column; grid-auto-columns:1fr; gap:10px; }
 .switch { display:flex; align-items:center; justify-content:space-between; gap:10px; min-height:44px; }
 .switch input { width:22px; height:22px; accent-color:var(--team); flex:none; }
 
@@ -296,6 +300,9 @@ dialog.sheet { border:0; padding:0; margin:auto auto 0 auto; width:100%; max-wid
   border-radius:20px 20px 0 0; max-height:92dvh; overflow:auto; overscroll-behavior:contain;
   box-shadow:0 -8px 40px rgba(0,0,0,.25); }
 dialog.sheet::backdrop { background:rgba(8,12,10,.5); }
+/* A sheet that grows as the coach works (the poll's day rows) opens at full height, so whatever
+   is added below the fold never shifts what is above it. */
+dialog.sheet.sheet-tall { height:92dvh; }
 dialog.sheet[open] { animation:sheet-up .34s var(--ease); }
 dialog.sheet[open]::backdrop { animation:sheet-fade .26s ease-out; }
 @keyframes sheet-up { from { transform:translateY(28px); opacity:.4; } to { transform:translateY(0); opacity:1; } }
@@ -345,6 +352,34 @@ body:has(.fab) .toast { bottom:calc(90px + var(--sab)); }
 .month-dot { font-size:10px; line-height:1.2; border-radius:5px; padding:1px 3px; color:var(--team-ink); background:var(--team);
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .month-dot.cancelled { text-decoration:line-through; opacity:.6; }
+
+/* Compact variant — the coach's inline date picker inside a sheet. Day numbers plus up
+   to three pips (game = team colour, practice = ink-3, other = maybe), no text, so the
+   sheet stays short. A picked day fills with the team colour and its pips flip to the
+   team ink to stay visible. Nav arrows keep the 44px target; day cells sit at ~38px. */
+.month.compact { padding:8px; box-shadow:none; }
+.month.compact .month-head { margin-bottom:2px; }
+.month.compact .month-head .btn { min-height:44px; min-width:44px; padding:6px 10px; }
+.month.compact .month-grid { gap:2px; }
+.month.compact .month-cell { min-height:38px; padding:3px 0 2px; gap:2px; align-items:center; justify-content:flex-start;
+  border-radius:9px; font-size:14px; }
+.month.compact .month-cell.sel { background:var(--team); color:var(--team-ink); border-color:var(--team); }
+.month.compact .month-cell.sel .d { color:var(--team-ink); }
+.month.compact .month-cell.sel.today { box-shadow:inset 0 0 0 2px var(--team-ink); }   /* today, picked: ring inside the fill */
+.month.compact .month-cell.out.sel { opacity:.6; }
+.month-pips { display:flex; gap:2px; height:5px; justify-content:center; }
+.month-pip { width:5px; height:5px; border-radius:50%; display:block; background:var(--pip, var(--team)); }
+.month-pip.cancelled { background:transparent; box-shadow:inset 0 0 0 1.5px var(--pip, var(--team)); opacity:.7; }   /* hollow: something was here */
+.month.compact .month-cell.sel .month-pip { background:var(--team-ink); }
+.month.compact .month-cell.sel .month-pip.cancelled { background:transparent; box-shadow:inset 0 0 0 1.5px var(--team-ink); }
+
+/* Poll sheet: one row per picked day — label, its own time (the shared form rule above styles
+   the input; only the width differs) and a 44px remove button. */
+.slot-row { display:flex; align-items:center; gap:10px; padding:6px 0; border-top:1px solid var(--line); }
+.slot-row:first-child { border-top:0; }
+.slot-row b { flex:1; min-width:0; }
+.slot-row input { width:auto; }
+.slot-row .btn { min-width:44px; padding:6px 10px; }
 
 /* ---------- misc ---------- */
 .skeleton { height:72px; border-radius:var(--r); background:linear-gradient(90deg, var(--surface-2), var(--surface), var(--surface-2));

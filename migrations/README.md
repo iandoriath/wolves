@@ -35,3 +35,25 @@ events yet, so the brief gap is harmless, but don't apply it days early.)**
 If the page shows an error like "Could not find a relationship…" right after the migration,
 PostgREST's schema cache is stale: wait a minute, or run `notify pgrst, 'reload schema';` in
 the SQL editor.
+
+## 0003_event_arrive_early.sql (per-game arrive-by)
+
+**Apply this BEFORE deploying the build that contains it.** The event editor sends
+`arrive_early_min` on every event save, so against a database without the column PostgREST
+rejects the write and the coach cannot save *any* event until it is applied. The reverse order
+is safe: applying it early does nothing on its own, because the old build never sends the column.
+
+1. Supabase dashboard → SQL editor → New query → paste the whole file → Run. Safe to re-run.
+2. Confirm the column landed:
+   ```sql
+   select column_name, is_nullable from information_schema.columns
+    where table_schema='public' and table_name='events' and column_name='arrive_early_min';
+   ```
+   Expect one row, `is_nullable = YES`. Null means "use the team's `arrive_early_min`".
+3. On coach.html, open any **game** → the "Arrive early (min)" field sits beside Duration and
+   its placeholder is the team default. Type a number, watch the `= arrive by …` hint move,
+   save, and check the hero line on the team page. Enter `0` to drop the arrive-by for one game.
+   The field is hidden for practices and does nothing when Time TBD is checked.
+
+The file ends with `notify pgrst, 'reload schema';`, so a stale PostgREST cache should not be an
+issue — but if a save 400s with "Could not find the 'arrive_early_min' column", run that line again.

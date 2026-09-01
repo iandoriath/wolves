@@ -18,7 +18,32 @@
   const wire = (root, map) => root.addEventListener('click', (ev) => { const el = ev.target.closest('[data-act]'); if (el && map[el.dataset.act]) { ev.preventDefault(); map[el.dataset.act](el); } });
   const val = (root, sel) => root.querySelector(sel)?.value?.trim() ?? '';
   const num = (root, sel, lo, hi) => Math.max(lo, Math.min(hi, Number(val(root, sel)) || 1));
-  C.fieldDateTime = (id, label, iso, tz, extra = '') => `<div class="field"><label for="${id}">${U.esc(label)}</label><input id="${id}" type="datetime-local" value="${U.esc(iso ? L.toLocalInput(iso, tz) : '')}" ${extra}></div>`;
+
+  // ---------- day + time ("When") ----------
+  // The coach is on Android, where datetime-local is a pair of spinner wheels — so every
+  // start time is picked as a day on an inline calendar (U.mountDatePicker, showing what the
+  // team already has on) plus a native time input (a clock dial there) with quick-time chips
+  // drawn from the team's own habits (L.recentTimes). whenHtml renders the slot; wireWhen
+  // mounts the picker into it and hands back readers plus the Time-TBD switch. focusTime marks the
+  // time input as the sheet's first focus (U.sheet honours [autofocus]) for a sheet where the
+  // calendar comes first: the picker's arrows are no place to land, the time is.
+  const hmOf = (iso, tz) => iso ? L.toLocalInput(iso, tz).slice(11) : '';
+  const hmLabel = (hm) => L.fmtTime(`2000-01-01T${hm}:00Z`, 'UTC');          // '17:30' → '5:30 PM'
+  const whenHtml = (id, { dayLabel = 'When', time = '', chips = [], focusTime = false } = {}) => `<div class="field"><label>${U.esc(dayLabel)}</label><div data-picker="${id}"></div></div>
+    <div class="field"><label for="${id}-time">Time</label><input id="${id}-time" type="time" step="900" value="${U.esc(time)}"${focusTime ? ' autofocus' : ''}>${chips.length ? `<div class="chips" data-times="${id}">${chips.map(t => `<button type="button" class="chip" data-time="${U.esc(t)}" aria-pressed="false">${U.esc(hmLabel(t))}</button>`).join('')}</div>` : ''}</div>`;
+  const wireWhen = (root, id, { tz, events, value = null, onChange }) => {
+    const input = root.querySelector(`#${id}-time`), chipsBox = root.querySelector(`[data-times="${id}"]`);
+    const chips = () => [...(chipsBox?.querySelectorAll('.chip') || [])];
+    const syncChips = () => chips().forEach(c => { const on = c.dataset.time === input.value; c.classList.toggle('on', on); c.setAttribute('aria-pressed', on); });
+    // A chip writes the input and raises 'input' on it, so anything watching the field
+    // (bulk add's invalidate, the chip highlight) sees a chip tap exactly like a typed time.
+    chipsBox?.addEventListener('click', (ev) => { const c = ev.target.closest('.chip'); if (!c || input.disabled) return; input.value = c.dataset.time; input.dispatchEvent(new Event('input', { bubbles: true })); });
+    input.addEventListener('input', syncChips); syncChips();
+    const picker = U.mountDatePicker(root.querySelector(`[data-picker="${id}"]`), { tz, events, value, onChange: () => onChange?.() });
+    return { picker, day: () => picker.get(), time: () => input.value,
+      iso: () => { const d = picker.get(), t = input.value; return d && t ? L.fromLocalInput(`${d}T${t}`, tz) : null; },
+      setTbd: (on) => { input.disabled = on; chips().forEach(c => { c.disabled = on; }); } };
+  };
 
   // ---------- role chips ----------
   const rolesChips = (all, selected) => `<div class="chips" data-roles>${[...new Set([...all, ...selected])].map(r => `<button type="button" class="chip ${selected.includes(r) ? 'on' : ''}" data-role="${U.esc(r)}" aria-pressed="${selected.includes(r)}">${U.esc(r)}</button>`).join('')}<input placeholder="+ role" style="min-height:36px;border:1px dashed var(--line);border-radius:999px;padding:4px 10px;width:110px" data-new-role></div>`;
@@ -83,15 +108,17 @@
       location: preset.location ?? t.default_location, home: null, notes: '', volunteer_roles: preset.volunteer_roles ?? (preset.kind === 'game' || !preset.kind ? t.default_volunteer_roles : []), status: 'scheduled', status_note: '' };
     const locs = [...new Set(b.events.map(x => x.location).filter(Boolean).concat(t.default_location ? [t.default_location] : []))];
     const opps = [...new Set(b.events.map(x => x.opponent).filter(Boolean))];
+    const chips = L.recentTimes(b.events, tz, 4);
     const html = `<form data-form>
       <div class="field"><label>Kind</label><div class="seg" data-kind>${['game', 'practice', 'other'].map(k => `<button type="button" data-k="${k}" aria-pressed="${e.kind === k}">${k[0].toUpperCase() + k.slice(1)}</button>`).join('')}</div></div>
       <div class="field" data-only="game"><label for="ev-opp">Opponent</label><input id="ev-opp" list="opp-list" value="${U.esc(e.opponent || '')}"><datalist id="opp-list">${opps.map(o => `<option value="${U.esc(o)}">`).join('')}</datalist></div>
       <div class="field" data-only="game"><label>Home / Away</label><div class="seg" data-home>${[['true', 'Home'], ['false', 'Away'], ['', 'Unknown']].map(([v, l]) => `<button type="button" data-h="${v}" aria-pressed="${String(e.home ?? '') === v}">${l}</button>`).join('')}</div></div>
       <div class="field" data-only="other"><label for="ev-title">Title</label><input id="ev-title" value="${U.esc(e.title || '')}" placeholder="Picture day, Team party…"></div>
-      ${C.fieldDateTime('ev-start', 'When', e.starts_at, tz, 'required')}
+      ${whenHtml('ev', { time: hmOf(e.starts_at, tz), chips })}
       <div class="switch"><label for="ev-tbd">Time TBD (shows date only)</label><input type="checkbox" id="ev-tbd" ${e.time_tbd ? 'checked' : ''}></div>
       <div class="field-row"><div class="field"><label for="ev-dur">Duration (min)</label><input id="ev-dur" type="number" inputmode="numeric" value="${U.esc(e.duration_min ?? '')}" placeholder="${U.esc(e.kind === 'game' ? t.game_duration_min : t.practice_duration_min)}"></div>
-      <div class="field"><label for="ev-loc">Location</label><input id="ev-loc" list="loc-list" value="${U.esc(e.location || '')}"><datalist id="loc-list">${locs.map(o => `<option value="${U.esc(o)}">`).join('')}</datalist></div></div>
+      <div class="field" data-only="game"><label for="ev-arr">Arrive early (min)</label><input id="ev-arr" type="number" inputmode="numeric" min="0" value="${U.esc(e.arrive_early_min ?? '')}" placeholder="${U.esc(t.arrive_early_min ?? 0)}"><div class="tiny muted" data-arrive-hint></div></div></div>
+      <div class="field"><label for="ev-loc">Location</label><input id="ev-loc" list="loc-list" value="${U.esc(e.location || '')}"><datalist id="loc-list">${locs.map(o => `<option value="${U.esc(o)}">`).join('')}</datalist></div>
       <div class="field"><label>Volunteer roles</label>${rolesChips(t.default_volunteer_roles || [], e.volunteer_roles || [])}</div>
       <div class="field"><label for="ev-notes">Notes <span class="muted" style="font-weight:400">(parents see these; they also appear in the public calendar feed)</span></label><textarea id="ev-notes">${U.esc(e.notes || '')}</textarea></div>
       ${event && event.status !== 'scheduled' ? `<div class="field"><label for="ev-snote">Status note (${U.esc(event.status)})</label><input id="ev-snote" value="${U.esc(event.status_note || '')}"></div>` : ''}
@@ -101,15 +128,43 @@
     const getKind = wireKind(root, e.kind, (kind) => {
       root.querySelector('#ev-dur').placeholder = kind === 'game' ? t.game_duration_min : t.practice_duration_min;
       if (!rolesTouched) setRoles(root, kind === 'game' ? (t.default_volunteer_roles || []) : []);
+      paintArrive();
     });
     wireRoles(root, () => { rolesTouched = true; });
     root.querySelector('[data-home]').addEventListener('click', (ev) => { const bt = ev.target.closest('button'); if (!bt) return; home = bt.dataset.h === '' ? null : bt.dataset.h === 'true'; root.querySelectorAll('[data-home] button').forEach(x => x.setAttribute('aria-pressed', x === bt)); });
+    // Editing preselects the event's day; Save-&-add-another / Duplicate arrive with preset.starts_at
+    // (+7 days) and preselect that; a fresh event opens on this month with nothing picked.
+    const when = wireWhen(root, 'ev', { tz, events: b.events, value: e.starts_at ? L.dateKey(e.starts_at, tz) : null, onChange: () => paintArrive() });
+    const tbd = root.querySelector('#ev-tbd');
+    // The hint reads through L.arriveBy itself, so the sheet can never claim a time that differs
+    // from the one parents see. Blank inherits the team default; 0 turns the line off.
+    const arrEl = root.querySelector('#ev-arr'), arrHint = root.querySelector('[data-arrive-hint]');
+    const paintArrive = () => {
+      const raw = arrEl.value.trim(), iso = when.iso();
+      const ab = iso && L.arriveBy({ kind: getKind(), starts_at: iso, time_tbd: tbd.checked,
+        arrive_early_min: raw === '' ? null : Number(raw) }, t);
+      arrHint.textContent = getKind() !== 'game' || tbd.checked || !iso ? ''
+        : ab ? `= arrive by ${L.fmtTime(ab, tz)}`
+        : 'No arrive-by shown';
+    };
+    arrEl.addEventListener('input', paintArrive);
+    root.querySelector('#ev-time').addEventListener('input', paintArrive);
+    when.setTbd(tbd.checked); tbd.addEventListener('change', () => { when.setTbd(tbd.checked); paintArrive(); });
+    paintArrive();
     const collect = () => {
       const kind = getKind();
-      const starts_at = L.fromLocalInput(val(root, '#ev-start'), tz); if (!starts_at) { U.toast('Pick a date and time'); return null; }
+      const day = when.day(); if (!day) { U.toast('Pick a day on the calendar'); return null; }
+      // A TBD event still needs a point in time to sort and feed by. A new one is pinned to noon,
+      // whatever the disabled field happens to show; an existing one keeps its stored time and only
+      // falls back to noon when the field is empty.
+      const time = tbd.checked ? (event ? when.time() || '12:00' : '12:00') : when.time();
+      if (!time) { U.toast('Pick a time, or check Time TBD'); return null; }
+      const starts_at = L.fromLocalInput(`${day}T${time}`, tz);
       const dur = val(root, '#ev-dur');
+      // '' clears the override back to the team default; '0' is a real value, so test for '' not falsiness.
+      const arr = kind === 'game' ? val(root, '#ev-arr') : '';
       return { team_id: t.id, kind, title: kind === 'other' ? val(root, '#ev-title') : '', opponent: kind === 'game' ? (val(root, '#ev-opp') || null) : null, home: kind === 'game' ? home : null,
-        starts_at, time_tbd: root.querySelector('#ev-tbd').checked, duration_min: dur ? Number(dur) : null, location: val(root, '#ev-loc'), volunteer_roles: readRoles(root), notes: val(root, '#ev-notes'),
+        starts_at, time_tbd: root.querySelector('#ev-tbd').checked, duration_min: dur ? Number(dur) : null, arrive_early_min: arr === '' ? null : Number(arr), location: val(root, '#ev-loc'), volunteer_roles: readRoles(root), notes: val(root, '#ev-notes'),
         ...(event ? { id: event.id, status_note: root.querySelector('#ev-snote') ? val(root, '#ev-snote') : event.status_note } : {}) };
     };
     wire(root, {
@@ -133,8 +188,9 @@
   C.restore = ({ slug, event }) => write(slug, () => Api.saveEvent({ id: event.id, status: 'scheduled', status_note: '' })).then(r => r && U.toast('Back on the schedule'));
   C.rescheduleSheet = ({ slug, event }) => {
     const b = bundle(slug), tz = b.team.tz;
-    const { root, close } = U.sheet({ title: 'Reschedule', html: `${C.fieldDateTime('rs-start', 'New date & time', event.starts_at, tz)}<div class="field"><label for="rs-loc">Location</label><input id="rs-loc" value="${U.esc(event.location || '')}"></div><p class="tiny muted">RSVPs will be cleared so families answer again; volunteer sign-ups stay.</p><div class="sheet-actions"><button class="btn btn-primary" data-act="go">Move it</button><button class="btn btn-ghost" data-act="x">Back</button></div>` });
-    wire(root, { x: () => close(), go: async () => { const starts_at = L.fromLocalInput(val(root, '#rs-start'), tz); if (!starts_at) return U.toast('Pick a date and time');
+    const { root, close } = U.sheet({ title: 'Reschedule', html: `${whenHtml('rs', { dayLabel: 'New date', time: hmOf(event.starts_at, tz), chips: L.recentTimes(b.events, tz, 4), focusTime: true })}<div class="field"><label for="rs-loc">Location</label><input id="rs-loc" value="${U.esc(event.location || '')}"></div><p class="tiny muted">RSVPs will be cleared so families answer again; volunteer sign-ups stay.</p><div class="sheet-actions"><button class="btn btn-primary" data-act="go">Move it</button><button class="btn btn-ghost" data-act="x">Back</button></div>` });
+    const when = wireWhen(root, 'rs', { tz, events: b.events, value: L.dateKey(event.starts_at, tz) });
+    wire(root, { x: () => close(), go: async () => { const starts_at = when.iso(); if (!starts_at) return U.toast('Pick a day and time');
       const oldStart = event.rescheduled_from || event.starts_at;
       const location = val(root, '#rs-loc');
       const saved = await write(slug, async () => { await Api.clearEventRsvps(event.id); return Api.saveEvent({ id: event.id, starts_at, location, rescheduled_from: oldStart, status: 'scheduled', status_note: '' }); });
@@ -203,10 +259,42 @@
   // ---------- polls ----------
   C.pollSheet = ({ slug }) => {
     const b = bundle(slug), tz = b.team.tz;
-    const slotField = (i) => `<div class="field"><label for="ps-${i}">Option ${i + 1}</label><input id="ps-${i}" type="datetime-local" data-slot></div>`;
-    const { root, close } = U.sheet({ title: 'New practice-time poll', html: `<div class="field"><label for="pl-title">Title</label><input id="pl-title" placeholder="Extra practice next week?"></div><div data-slots>${slotField(0)}${slotField(1)}</div><div class="cluster"><button class="btn btn-sm" data-act="more">+ option</button><button class="btn btn-sm" data-act="less">− option</button></div><div class="sheet-actions"><button class="btn btn-primary" data-act="save">Post poll</button><button class="btn btn-ghost" data-act="x">Cancel</button></div>` });
-    wire(root, { x: () => close(), more: () => { const n = root.querySelectorAll('[data-slot]').length; if (n < 6) root.querySelector('[data-slots]').insertAdjacentHTML('beforeend', slotField(n)); }, less: () => { const s = root.querySelectorAll('[data-slot]'); if (s.length > 2) s[s.length - 1].closest('.field').remove(); },
-      save: async () => { const title = val(root, '#pl-title'); const starts = [...root.querySelectorAll('[data-slot]')].map(i => L.fromLocalInput(i.value, tz)).filter(Boolean); if (!title || starts.length < 2) return U.toast('Add a title and at least 2 options');
+    const usual = L.recentTimes(b.events, tz, 1)[0] || '17:30';
+    // sheet-tall: the sheet opens at its full height, so the rows that appear under the calendar as
+    // days are tapped never grow the sheet — and shift the calendar — under the coach's thumb.
+    const { root, close } = U.sheet({ title: 'New practice-time poll', className: 'sheet-tall', html: `<div class="field"><label for="pl-title">Title</label><input id="pl-title" placeholder="Extra practice next week?"></div>
+      <div class="field"><label>Tap the days you’re offering <span class="muted" style="font-weight:400">(2–6)</span></label><div data-picker="pl"></div></div>
+      <div data-slots style="margin-bottom:4px"></div>
+      <div class="sheet-actions"><button class="btn btn-primary" data-act="save">Post poll</button><button class="btn btn-ghost" data-act="x">Cancel</button></div>` });
+    // One row per picked day, sorted. times remembers each day's time across re-renders; a day
+    // that is untapped (on the calendar or via its ×) drops out, a new day borrows the time of the
+    // row above it — or the one below, or the team's usual practice time — so a 3-day poll is
+    // usually three taps and no typing.
+    const times = new Map();
+    const slotsEl = root.querySelector('[data-slots]');
+    const renderRows = (picked) => {                 // picked: the picker's Set of day keys
+      const days = [...picked].sort();
+      for (const k of [...times.keys()]) if (!days.includes(k)) times.delete(k);
+      days.forEach((k, i) => { if (!times.has(k)) times.set(k, (i > 0 && times.get(days[i - 1])) || days.slice(i + 1).map(d => times.get(d)).find(Boolean) || usual); });
+      slotsEl.innerHTML = days.length
+        ? days.map(k => `<div class="slot-row"><b>${U.esc(L.fmtKey(k))}</b><input type="time" step="900" value="${U.esc(times.get(k))}" data-slot-time="${U.esc(k)}" aria-label="Time on ${U.esc(L.fmtKey(k))}"><button type="button" class="btn btn-ghost" data-act="drop" data-key="${U.esc(k)}" aria-label="Remove ${U.esc(L.fmtKey(k))}">${U.icon('x')}</button></div>`).join('')
+        : '<p class="tiny muted" style="margin:0 0 8px">Pick at least 2 days above — each gets its own time.</p>';
+    };
+    const picker = U.mountDatePicker(root.querySelector('[data-picker="pl"]'), { tz, events: b.events, multi: true, max: 6, onChange: renderRows });
+    slotsEl.addEventListener('input', (ev) => { const k = ev.target.dataset.slotTime; if (k) times.set(k, ev.target.value); });
+    renderRows(picker.get());
+    wire(root, { x: () => close(),
+      drop: (el) => {
+        const key = el.dataset.key, s = picker.get(); s.delete(key); picker.set(s); renderRows(s);
+        // The × just used went with its row, so focus moves to that day on the calendar (still the
+        // thing being edited) or, when the view is on another month, to the nearest remaining row's ×.
+        const xs = [...slotsEl.querySelectorAll('[data-act="drop"]')];
+        (root.querySelector(`[data-pick-day="${key}"]`) || xs.find(x => x.dataset.key > key) || xs[xs.length - 1] || root.querySelector('[data-pick-day]'))?.focus();
+      },
+      save: async () => { const title = val(root, '#pl-title'); const days = [...picker.get()].sort();
+        if (!title || days.length < 2) return U.toast('Add a title and pick at least 2 days');
+        if (days.some(k => !times.get(k))) return U.toast('Set a time for every day');
+        const starts = days.map(k => L.fromLocalInput(`${k}T${times.get(k)}`, tz));
         if (await write(slug, () => Api.savePoll({ team_id: b.team.id, title, status: 'open' }, starts))) { close(); U.toast('Poll posted'); } } });
   };
   C.closePoll = ({ slug, poll }) => write(slug, () => Api.closePoll(poll.id)).then(r => r && U.toast('Poll closed'));
@@ -267,7 +355,7 @@
     const b = bundle(slug), t = b.team, tz = t.tz;
     const { root, close } = U.sheet({ title: 'Add a series', html: `<div class="field"><label>Kind</label><div class="seg" data-kind>${['game', 'practice', 'other'].map(k => `<button type="button" data-k="${k}" aria-pressed="${k === 'practice'}">${k[0].toUpperCase() + k.slice(1)}</button>`).join('')}</div></div>
       <div class="field" data-only="game"><label for="bk-opp">Opponent</label><input id="bk-opp"></div><div class="field" data-only="other"><label for="bk-title">Title</label><input id="bk-title"></div>
-      ${C.fieldDateTime('bk-start', 'First date & time', null, tz)}
+      ${whenHtml('bk', { dayLabel: 'First date', chips: L.recentTimes(b.events, tz, 4) })}
       <div class="field-row"><div class="field"><label for="bk-every">Every (weeks)</label><input id="bk-every" type="number" inputmode="numeric" value="1" min="1" max="52"></div><div class="field"><label for="bk-count">How many</label><input id="bk-count" type="number" inputmode="numeric" value="8" min="1" max="60"></div></div>
       <div class="field"><label for="bk-loc">Location</label><input id="bk-loc" value="${U.esc(t.default_location || '')}"></div>
       <div class="field"><label>Volunteer roles</label>${rolesChips(t.default_volunteer_roles || [], [])}</div>
@@ -283,8 +371,10 @@
     // control invalidate through their own callbacks above — so reading the preview list leaves it alone.
     root.addEventListener('input', invalidate);
     root.addEventListener('change', invalidate);
+    // A calendar tap is a click, not an input event, so the picker invalidates through its own callback.
+    const when = wireWhen(root, 'bk', { tz, events: b.events, onChange: invalidate });
     const buildRows = () => {                    // single source of truth for both Preview and Add all
-      const first = L.fromLocalInput(val(root, '#bk-start'), tz);
+      const first = when.iso();
       if (!first) { U.toast('Pick the first date and time'); return null; }
       const kind = getKind();
       const starts = L.expandWeekly(first, tz, { count: num(root, '#bk-count', 1, 60), everyWeeks: num(root, '#bk-every', 1, 52) });

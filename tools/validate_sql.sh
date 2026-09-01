@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Validates schema.sql (fresh) and v1 schema + migrations/0002 against a throwaway Postgres.
+# Validates schema.sql (fresh) and v1 schema + migrations/0002..0003 against a throwaway Postgres.
 set -euo pipefail
 trap 'docker rm -f wolves-pg >/dev/null 2>&1 || true' EXIT
 cd "$(dirname "$0")/.."
@@ -20,6 +20,8 @@ echo "$stub" | psql_ migrated
 git show e84807d:schema.sql | psql_ migrated
 psql_ migrated < migrations/0002_team_app.sql
 psql_ migrated < migrations/0002_team_app.sql   # idempotency
+psql_ migrated < migrations/0003_event_arrive_early.sql
+psql_ migrated < migrations/0003_event_arrive_early.sql   # idempotency
 echo "== compare column sets"
 q="select table_name, column_name, data_type from information_schema.columns where table_schema='public' order by 1,2"
 diff <(docker exec wolves-pg psql -U postgres -d fresh -At -c "$q") <(docker exec wolves-pg psql -U postgres -d migrated -At -c "$q")
