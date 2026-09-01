@@ -38,6 +38,7 @@ create table events (
   starts_at timestamptz not null,
   time_tbd boolean not null default false,
   duration_min int,                                -- null -> team default by kind
+  arrive_early_min int,                            -- games: null -> team default, 0 -> no arrive-by
   location text not null default '',
   home boolean,                                    -- games: true home, false away, null unknown
   notes text not null default '',

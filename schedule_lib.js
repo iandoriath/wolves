@@ -22,8 +22,13 @@
     return 60;
   };
   L.eventEnd = (e, team) => addMin(e.starts_at, L.durationMin(e, team));
-  L.arriveBy = (e, team) => (e.kind === 'game' && !e.time_tbd && (team?.arrive_early_min ?? 0) > 0)
-    ? addMin(e.starts_at, -team.arrive_early_min) : null;
+  // Games only, and never for a TBD time. The event's own arrive_early_min overrides the team's
+  // the way duration_min overrides the team duration — null inherits, and an explicit 0 on one
+  // game drops its arrive-by line without touching the rest of the team's.
+  L.arriveBy = (e, team) => {
+    const mins = e.arrive_early_min ?? team?.arrive_early_min ?? 0;
+    return (e.kind === 'game' && !e.time_tbd && mins > 0) ? addMin(e.starts_at, -mins) : null;
+  };
   L.isPast = (e, team, now) => T(L.eventEnd(e, team)) <= now.getTime();
   L.isNow = (e, team, now) => T(e.starts_at) <= now.getTime() && !L.isPast(e, team, now);
   L.nextEvent = (events, team, now) =>

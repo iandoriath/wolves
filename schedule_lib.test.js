@@ -30,6 +30,13 @@ eq(L.eventEnd(g, team), '2026-05-02T15:30:00.000Z', 'event end');
 eq(L.arriveBy(g, team), '2026-05-02T13:30:00.000Z', 'arrive by');
 eq(L.arriveBy({ kind: 'practice', starts_at: g.starts_at }, team), null, 'no arrive-by for practice');
 eq(L.arriveBy({ ...g, time_tbd: true }, team), null, 'no arrive-by when TBD');
+// Per-event arrive-early override — same shape as duration_min: null inherits the team value.
+eq(L.arriveBy({ ...g, arrive_early_min: 90 }, team), '2026-05-02T12:30:00.000Z', 'arrive-by: event override beats team default');
+eq(L.arriveBy({ ...g, arrive_early_min: null }, team), '2026-05-02T13:30:00.000Z', 'arrive-by: null inherits the team default');
+eq(L.arriveBy({ ...g, arrive_early_min: 0 }, team), null, 'arrive-by: 0 on the event suppresses it for that game');
+eq(L.arriveBy({ ...g, arrive_early_min: 45 }, { ...team, arrive_early_min: 0 }), '2026-05-02T13:15:00.000Z', 'arrive-by: event override works even when the team default is 0');
+eq(L.arriveBy({ kind: 'practice', starts_at: g.starts_at, arrive_early_min: 45 }, team), null, 'arrive-by: an override on a practice is still ignored');
+eq(L.arriveBy({ ...g, time_tbd: true, arrive_early_min: 45 }, team), null, 'arrive-by: an override on a TBD game is still ignored');
 ok(L.isPast(g, team, new Date('2026-05-02T15:31:00Z')), 'past after end');
 ok(!L.isPast(g, team, new Date('2026-05-02T15:00:00Z')), 'not past while in progress');
 ok(L.isNow(g, team, new Date('2026-05-02T15:00:00Z')), 'isNow during');
@@ -228,6 +235,7 @@ const icsEvents = [
   { id: 7, kind: 'other', title: 'Picture day', starts_at: '2026-05-09T16:00:00Z', time_tbd: true, location: 'Pavilion', notes: '', status: 'scheduled', status_note: '', updated_at: '2026-04-01T00:00:00Z' },
   { id: 8, kind: 'game', opponent: 'Bears', home: false, starts_at: '2026-01-10T14:00:00Z', status: 'scheduled', status_note: '', updated_at: '2026-01-01T00:00:00Z' }, // older than 60 days → excluded
   { id: 9, kind: 'game', opponent: 'Lions', home: null, starts_at: '2026-05-16T14:00:00Z', status: 'tentative', status_note: 'Decision by 8:30', rescheduled_from: '2026-05-15T14:00:00Z', updated_at: '2026-04-30T00:00:00Z' },
+  { id: 11, kind: 'game', opponent: 'Hawks', home: true, starts_at: '2026-05-23T14:00:00Z', location: 'Field 3', notes: '', status: 'scheduled', status_note: '', arrive_early_min: 90, updated_at: '2026-04-25T00:00:00Z' },
   { id: 10, kind: 'other', title: 'Fall Festival', starts_at: '2026-05-20T14:00:00Z', location: '', notes: '🎉🎊🥎🎈🏆🎉🎊🥎🎈🏆 Bring snacks, drinks, and a folding chair for the whole family to enjoy! 🎉🎊🥎🎈🏆', status: 'scheduled', status_note: '', updated_at: '2026-04-25T00:00:00Z' },
 ];
 const ics = L.buildIcs(team, icsEvents, O, icsNow);
@@ -244,6 +252,8 @@ has('UID:evt-6@wolves.glorbnorb.com', 'cancelled kept'); has('SUMMARY:CANCELLED 
 has('DTSTART;VALUE=DATE:20260509'); has('DTEND;VALUE=DATE:20260510'); has('SUMMARY:🥎 SAA 10U Wolves: Picture day');
 has('SUMMARY:(weather pending) 🥎 SAA 10U Wolves vs Lions · arrive 9:30 AM'); has('STATUS:TENTATIVE');
 has('DESCRIPTION:Arrive by 9:30 AM\\nDecision by 8:30\\nMoved from Fri\\, May 15 10:00 AM\\nhttps://', 'tentative description (comma escaped)');
+has('SUMMARY:🥎 SAA 10U Wolves vs Hawks · arrive 8:30 AM', 'ics summary uses the per-event arrive-early override');
+has('DESCRIPTION:Arrive by 8:30 AM\\nHome game\\nhttps://', 'ics description uses the per-event arrive-early override');
 ok(!ics.includes('evt-8'), 'ics excludes events older than 60 days');
 has('🎉🎊🥎🎈🏆 Bring snacks\\, drinks\\, and a folding chair for the whole family to enjoy! 🎉🎊🥎🎈🏆', 'emoji-heavy notes survive fold/unfold');
 ok(ics.split('\r\n').every(l => new TextEncoder().encode(l).length <= 75), 'ics lines folded to ≤75 octets');

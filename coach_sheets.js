@@ -117,7 +117,8 @@
       ${whenHtml('ev', { time: hmOf(e.starts_at, tz), chips })}
       <div class="switch"><label for="ev-tbd">Time TBD (shows date only)</label><input type="checkbox" id="ev-tbd" ${e.time_tbd ? 'checked' : ''}></div>
       <div class="field-row"><div class="field"><label for="ev-dur">Duration (min)</label><input id="ev-dur" type="number" inputmode="numeric" value="${U.esc(e.duration_min ?? '')}" placeholder="${U.esc(e.kind === 'game' ? t.game_duration_min : t.practice_duration_min)}"></div>
-      <div class="field"><label for="ev-loc">Location</label><input id="ev-loc" list="loc-list" value="${U.esc(e.location || '')}"><datalist id="loc-list">${locs.map(o => `<option value="${U.esc(o)}">`).join('')}</datalist></div></div>
+      <div class="field" data-only="game"><label for="ev-arr">Arrive early (min)</label><input id="ev-arr" type="number" inputmode="numeric" min="0" value="${U.esc(e.arrive_early_min ?? '')}" placeholder="${U.esc(t.arrive_early_min ?? 0)}"><div class="tiny muted" data-arrive-hint></div></div></div>
+      <div class="field"><label for="ev-loc">Location</label><input id="ev-loc" list="loc-list" value="${U.esc(e.location || '')}"><datalist id="loc-list">${locs.map(o => `<option value="${U.esc(o)}">`).join('')}</datalist></div>
       <div class="field"><label>Volunteer roles</label>${rolesChips(t.default_volunteer_roles || [], e.volunteer_roles || [])}</div>
       <div class="field"><label for="ev-notes">Notes <span class="muted" style="font-weight:400">(parents see these; they also appear in the public calendar feed)</span></label><textarea id="ev-notes">${U.esc(e.notes || '')}</textarea></div>
       ${event && event.status !== 'scheduled' ? `<div class="field"><label for="ev-snote">Status note (${U.esc(event.status)})</label><input id="ev-snote" value="${U.esc(event.status_note || '')}"></div>` : ''}
@@ -127,14 +128,29 @@
     const getKind = wireKind(root, e.kind, (kind) => {
       root.querySelector('#ev-dur').placeholder = kind === 'game' ? t.game_duration_min : t.practice_duration_min;
       if (!rolesTouched) setRoles(root, kind === 'game' ? (t.default_volunteer_roles || []) : []);
+      paintArrive();
     });
     wireRoles(root, () => { rolesTouched = true; });
     root.querySelector('[data-home]').addEventListener('click', (ev) => { const bt = ev.target.closest('button'); if (!bt) return; home = bt.dataset.h === '' ? null : bt.dataset.h === 'true'; root.querySelectorAll('[data-home] button').forEach(x => x.setAttribute('aria-pressed', x === bt)); });
     // Editing preselects the event's day; Save-&-add-another / Duplicate arrive with preset.starts_at
     // (+7 days) and preselect that; a fresh event opens on this month with nothing picked.
-    const when = wireWhen(root, 'ev', { tz, events: b.events, value: e.starts_at ? L.dateKey(e.starts_at, tz) : null });
+    const when = wireWhen(root, 'ev', { tz, events: b.events, value: e.starts_at ? L.dateKey(e.starts_at, tz) : null, onChange: () => paintArrive() });
     const tbd = root.querySelector('#ev-tbd');
-    when.setTbd(tbd.checked); tbd.addEventListener('change', () => when.setTbd(tbd.checked));
+    // The hint reads through L.arriveBy itself, so the sheet can never claim a time that differs
+    // from the one parents see. Blank inherits the team default; 0 turns the line off.
+    const arrEl = root.querySelector('#ev-arr'), arrHint = root.querySelector('[data-arrive-hint]');
+    const paintArrive = () => {
+      const raw = arrEl.value.trim(), iso = when.iso();
+      const ab = iso && L.arriveBy({ kind: getKind(), starts_at: iso, time_tbd: tbd.checked,
+        arrive_early_min: raw === '' ? null : Number(raw) }, t);
+      arrHint.textContent = getKind() !== 'game' || tbd.checked || !iso ? ''
+        : ab ? `= arrive by ${L.fmtTime(ab, tz)}`
+        : 'No arrive-by shown';
+    };
+    arrEl.addEventListener('input', paintArrive);
+    root.querySelector('#ev-time').addEventListener('input', paintArrive);
+    when.setTbd(tbd.checked); tbd.addEventListener('change', () => { when.setTbd(tbd.checked); paintArrive(); });
+    paintArrive();
     const collect = () => {
       const kind = getKind();
       const day = when.day(); if (!day) { U.toast('Pick a day on the calendar'); return null; }
@@ -145,8 +161,10 @@
       if (!time) { U.toast('Pick a time, or check Time TBD'); return null; }
       const starts_at = L.fromLocalInput(`${day}T${time}`, tz);
       const dur = val(root, '#ev-dur');
+      // '' clears the override back to the team default; '0' is a real value, so test for '' not falsiness.
+      const arr = kind === 'game' ? val(root, '#ev-arr') : '';
       return { team_id: t.id, kind, title: kind === 'other' ? val(root, '#ev-title') : '', opponent: kind === 'game' ? (val(root, '#ev-opp') || null) : null, home: kind === 'game' ? home : null,
-        starts_at, time_tbd: root.querySelector('#ev-tbd').checked, duration_min: dur ? Number(dur) : null, location: val(root, '#ev-loc'), volunteer_roles: readRoles(root), notes: val(root, '#ev-notes'),
+        starts_at, time_tbd: root.querySelector('#ev-tbd').checked, duration_min: dur ? Number(dur) : null, arrive_early_min: arr === '' ? null : Number(arr), location: val(root, '#ev-loc'), volunteer_roles: readRoles(root), notes: val(root, '#ev-notes'),
         ...(event ? { id: event.id, status_note: root.querySelector('#ev-snote') ? val(root, '#ev-snote') : event.status_note } : {}) };
     };
     wire(root, {
