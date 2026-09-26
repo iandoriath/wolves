@@ -58,26 +58,26 @@ END:VALARM
 END:VEVENT
 BEGIN:VEVENT
 UID:evt-9@wolves.glorbnorb.com
-DTSTAMP:20260901T172346Z
-SEQUENCE:1788283426
-LAST-MODIFIED:20260901T172346Z
+DTSTAMP:20260926T133218Z
+SEQUENCE:1790429538
+LAST-MODIFIED:20260926T133218Z
 DTSTART:20260926T160000Z
 DTEND:20260926T165000Z
-SUMMARY:⚽ Canada @ Japan · arrive 11:00 AM
+SUMMARY:(weather pending) ⚽ Canada @ Japan · arrive 11:55 AM
 LOCATION:Netherwood Park\, 152 Baltimore Pike\, Springfield Township\, PA 1
  9064
-DESCRIPTION:Arrive by 11:00 AM\nAway game\nhttps://wolves.glorbnorb.com/?te
- am=soccer&event=9
+DESCRIPTION:Arrive by 11:55 AM\nAway game\nNo practice. Waiting on league d
+ ecision for game.\nhttps://wolves.glorbnorb.com/?team=soccer&event=9
 URL:https://wolves.glorbnorb.com/?team=soccer&event=9
-STATUS:CONFIRMED
+STATUS:TENTATIVE
 BEGIN:VALARM
 ACTION:DISPLAY
-DESCRIPTION:⚽ Canada @ Japan · arrive 11:00 AM
+DESCRIPTION:(weather pending) ⚽ Canada @ Japan · arrive 11:55 AM
 TRIGGER:-P1D
 END:VALARM
 BEGIN:VALARM
 ACTION:DISPLAY
-DESCRIPTION:⚽ Canada @ Japan · arrive 11:00 AM
+DESCRIPTION:(weather pending) ⚽ Canada @ Japan · arrive 11:55 AM
 TRIGGER:-PT2H
 END:VALARM
 END:VEVENT
