@@ -158,26 +158,26 @@ END:VALARM
 END:VEVENT
 BEGIN:VEVENT
 UID:evt-13@wolves.glorbnorb.com
-DTSTAMP:20260901T172346Z
-SEQUENCE:1788283426
-LAST-MODIFIED:20260901T172346Z
+DTSTAMP:20261024T024454Z
+SEQUENCE:1792809894
+LAST-MODIFIED:20261024T024454Z
 DTSTART:20261024T160000Z
 DTEND:20261024T165000Z
-SUMMARY:⚽ Canada vs England · arrive 11:00 AM
+SUMMARY:⚽ Canada vs England · arrive 11:45 AM
 LOCATION:Netherwood Park\, 152 Baltimore Pike\, Springfield Township\, PA 1
  9064
-DESCRIPTION:Arrive by 11:00 AM\nHome game\nhttps://wolves.glorbnorb.com/?te
+DESCRIPTION:Arrive by 11:45 AM\nHome game\nhttps://wolves.glorbnorb.com/?te
  am=soccer&event=13
 URL:https://wolves.glorbnorb.com/?team=soccer&event=13
 STATUS:CONFIRMED
 BEGIN:VALARM
 ACTION:DISPLAY
-DESCRIPTION:⚽ Canada vs England · arrive 11:00 AM
+DESCRIPTION:⚽ Canada vs England · arrive 11:45 AM
 TRIGGER:-P1D
 END:VALARM
 BEGIN:VALARM
 ACTION:DISPLAY
-DESCRIPTION:⚽ Canada vs England · arrive 11:00 AM
+DESCRIPTION:⚽ Canada vs England · arrive 11:45 AM
 TRIGGER:-PT2H
 END:VALARM
 END:VEVENT
