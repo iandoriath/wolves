@@ -233,17 +233,27 @@ END:VALARM
 END:VEVENT
 BEGIN:VEVENT
 UID:evt-16@wolves.glorbnorb.com
-DTSTAMP:20261105T164012Z
-SEQUENCE:1793896812
-LAST-MODIFIED:20261105T164012Z
-DTSTART;VALUE=DATE:20261114
-DTEND;VALUE=DATE:20261115
-SUMMARY:⚽ Canada vs Germany or England
+DTSTAMP:20261107T212312Z
+SEQUENCE:1794086592
+LAST-MODIFIED:20261107T212312Z
+DTSTART:20261114T170000Z
+DTEND:20261114T175000Z
+SUMMARY:⚽ Canada @ Germany · arrive 11:45 AM
 LOCATION:Netherwood Park\, 152 Baltimore Pike\, Springfield Township\, PA 1
  9064
-DESCRIPTION:Championship / consolation game — opponent and start time TBD
- .\nhttps://wolves.glorbnorb.com/?team=soccer&event=16
+DESCRIPTION:Arrive by 11:45 AM\nAway game\nChampionship Game\nhttps://wolve
+ s.glorbnorb.com/?team=soccer&event=16
 URL:https://wolves.glorbnorb.com/?team=soccer&event=16
 STATUS:CONFIRMED
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:⚽ Canada @ Germany · arrive 11:45 AM
+TRIGGER:-P1D
+END:VALARM
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:⚽ Canada @ Germany · arrive 11:45 AM
+TRIGGER:-PT2H
+END:VALARM
 END:VEVENT
 END:VCALENDAR
